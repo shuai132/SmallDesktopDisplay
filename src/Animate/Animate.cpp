@@ -9,6 +9,8 @@ int Animate_key = -1; //初始化图标显示帧数
 #include "img/astronaut.h"
 #elif Animate_Choice == 2
 #include "img/hutao.h"
+#elif Animate_Choice == 3
+#include "img/longmao.h"
 #endif
 
 void imgAnim(const uint8_t **Animate_value, uint32_t *Animate_size)
@@ -29,5 +31,10 @@ void imgAnim(const uint8_t **Animate_value, uint32_t *Animate_size)
     *Animate_size = hutao_size[Animate_key];
     if (Animate_key >= 31)
         Animate_key = -1;
+#elif Animate_Choice == 3
+    *Animate_value = longmao[Animate_key];
+    *Animate_size = longmao_size[Animate_key];
+    if (Animate_key >= 40)
+        Animate_key = 0;
 #endif
 }
