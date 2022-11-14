@@ -154,7 +154,7 @@ int Amimate_reflash_Time = 0; //更新时间记录
 WeatherNum wrat;
 
 uint32_t targetTime = 0;
-String cityCode = "101090609"; //天气城市代码
+String cityCode = "101010900"; //天气城市代码
 int tempnum = 0;               //温度百分比
 int huminum = 0;               //湿度百分比
 int tempcol = 0xffff;          //温度显示颜色
