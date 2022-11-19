@@ -42,7 +42,8 @@ def parseGIF(gifname, key=2):
 
     # 遍历图片流的每一帧
     for frame in iter:
-        frame = frame.resize((70, 70), Resampling.LANCZOS)
+        # 在这里修改图片大小
+        frame = frame.resize((90, 90), Resampling.NEAREST)
         # print(f"image {index}: mode {frame.mode}, size {frame.size}")
         if index % key == 0:
             frame.save(f"{save_path}/{file_name}{index // key}.png")
@@ -54,13 +55,11 @@ def png_to_jpg(path, file_name):
     for i in url_list:
         # print(i)
         img = cv2_imread(path + i)
-        # 在这里修改图片大小，默认是70*70
-        img = cv2.resize(img, (70, 70), Resampling.LANCZOS)
 
         # 白色背景改为黑色
         for h in range(img.shape[0]):
             for w in range(img.shape[1]):
-                if all(img[h][w] >= 228):
+                if all(img[h][w] >= 215):
                     img[h][w] = [0, 0, 0]
 
         try_path(f"imgs/{file_name}/jpg")
