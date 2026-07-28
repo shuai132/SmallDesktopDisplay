@@ -180,10 +180,6 @@ bool NetworkRefreshService::service(String &cityCode, WeatherHandler weatherHand
   if (!weatherDone_ || !ntpDone_)
     return timeUpdated;
 
-#if !OTA_EN
-  WiFi.forceSleepBegin();
-  Serial.println("WIFI sleep......");
-#endif
   active_ = false;
   return timeUpdated;
 }

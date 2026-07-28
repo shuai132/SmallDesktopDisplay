@@ -1039,8 +1039,7 @@ void serviceNetwork()
 // 打开WIFI
 void wakeWifi()
 {
-  Serial.println("WIFI reset......");
-  WiFi.forceSleepWake(); // wifi on
+  Serial.println("Requesting network refresh......");
   wifiRefreshRequested = true;
 }
 
