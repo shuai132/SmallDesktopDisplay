@@ -1032,7 +1032,8 @@ void serviceNetwork()
     }
   }
 
-  networkRefresh.service(cityCode, parseWeatherResponse);
+  if (networkRefresh.service(cityCode, parseWeatherResponse))
+    digitalClockDisplay(true);
 }
 
 // 打开WIFI

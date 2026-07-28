@@ -16,7 +16,7 @@ public:
   }
 
   void start(String &cityCode);
-  void service(String &cityCode, WeatherHandler weatherHandler);
+  bool service(String &cityCode, WeatherHandler weatherHandler);
   bool isActive() const
   {
     return active_;
@@ -33,9 +33,9 @@ private:
   static constexpr size_t ntpPacketSize_ = 48;
 
   void startWeatherRequest(const String &url, WeatherState state);
-  void startNtpRequest();
+  bool startNtpRequest();
   void serviceWeather(String &cityCode, WeatherHandler weatherHandler);
-  void serviceNtp();
+  bool serviceNtp();
 
   WiFiUDP &udp_;
   asyncHTTPrequest weatherRequest_;
@@ -44,6 +44,7 @@ private:
   bool weatherDone_ = true;
   bool ntpDone_ = true;
   bool ntpWaiting_ = false;
+  size_t ntpServerIndex_ = 0;
   uint32_t ntpStartedAt_ = 0;
   byte ntpPacket_[ntpPacketSize_];
 };

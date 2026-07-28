@@ -7,9 +7,13 @@
 
 namespace
 {
-const char ntpServerName[] = "ntp6.aliyun.com";
+const char *const ntpServerNames[] = {
+    "ntp.aliyun.com",
+    "ntp.tencent.com",
+    "pool.ntp.org"};
+constexpr size_t ntpServerCount = sizeof(ntpServerNames) / sizeof(ntpServerNames[0]);
 constexpr int timeZone = 8;
-constexpr uint32_t ntpTimeoutMs = 1500;
+constexpr uint32_t ntpTimeoutMs = 3000;
 }
 
 void NetworkRefreshService::startWeatherRequest(const String &url, WeatherState state)
@@ -34,30 +38,43 @@ void NetworkRefreshService::startWeatherRequest(const String &url, WeatherState 
   }
 }
 
-void NetworkRefreshService::startNtpRequest()
+bool NetworkRefreshService::startNtpRequest()
 {
-  IPAddress serverIp;
-  if (!WiFi.hostByName(ntpServerName, serverIp, 100))
+  while (ntpServerIndex_ < ntpServerCount)
   {
-    Serial.println("NTP DNS lookup failed");
-    ntpDone_ = true;
-    return;
+    const char *serverName = ntpServerNames[ntpServerIndex_];
+    IPAddress serverIp;
+    if (!WiFi.hostByName(serverName, serverIp, 1000))
+    {
+      Serial.print("NTP DNS lookup failed: ");
+      Serial.println(serverName);
+      ntpServerIndex_++;
+      continue;
+    }
+
+    memset(ntpPacket_, 0, sizeof(ntpPacket_));
+    ntpPacket_[0] = 0b11100011;
+    ntpPacket_[2] = 6;
+    ntpPacket_[3] = 0xEC;
+    ntpPacket_[12] = 49;
+    ntpPacket_[13] = 0x4E;
+    ntpPacket_[14] = 49;
+    ntpPacket_[15] = 52;
+
+    udp_.beginPacket(serverIp, 123);
+    udp_.write(ntpPacket_, sizeof(ntpPacket_));
+    udp_.endPacket();
+    ntpStartedAt_ = millis();
+    ntpWaiting_ = true;
+    Serial.print("NTP request sent: ");
+    Serial.println(serverName);
+    return true;
   }
 
-  memset(ntpPacket_, 0, sizeof(ntpPacket_));
-  ntpPacket_[0] = 0b11100011;
-  ntpPacket_[2] = 6;
-  ntpPacket_[3] = 0xEC;
-  ntpPacket_[12] = 49;
-  ntpPacket_[13] = 0x4E;
-  ntpPacket_[14] = 49;
-  ntpPacket_[15] = 52;
-
-  udp_.beginPacket(serverIp, 123);
-  udp_.write(ntpPacket_, sizeof(ntpPacket_));
-  udp_.endPacket();
-  ntpStartedAt_ = millis();
-  ntpWaiting_ = true;
+  ntpDone_ = true;
+  ntpWaiting_ = false;
+  Serial.println("All NTP servers failed");
+  return false;
 }
 
 void NetworkRefreshService::start(String &cityCode)
@@ -65,6 +82,8 @@ void NetworkRefreshService::start(String &cityCode)
   active_ = true;
   weatherDone_ = false;
   ntpDone_ = false;
+  ntpWaiting_ = false;
+  ntpServerIndex_ = 0;
 
   const int cityNumber = cityCode.toInt();
   if (cityNumber >= 101000000 && cityNumber <= 102000000)
@@ -118,10 +137,10 @@ void NetworkRefreshService::serviceWeather(String &cityCode, WeatherHandler weat
   weatherState_ = WeatherState::Idle;
 }
 
-void NetworkRefreshService::serviceNtp()
+bool NetworkRefreshService::serviceNtp()
 {
   if (ntpDone_ || !ntpWaiting_)
-    return;
+    return false;
 
   const int size = udp_.parsePacket();
   if (size >= static_cast<int>(ntpPacketSize_))
@@ -132,31 +151,39 @@ void NetworkRefreshService::serviceNtp()
     secondsSince1900 |= static_cast<unsigned long>(ntpPacket_[42]) << 8;
     secondsSince1900 |= static_cast<unsigned long>(ntpPacket_[43]);
     setTime(secondsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR);
+    Serial.println("NTP time synchronized");
     ntpDone_ = true;
     ntpWaiting_ = false;
+    return true;
   }
-  else if (millis() - ntpStartedAt_ >= ntpTimeoutMs)
+
+  if (millis() - ntpStartedAt_ >= ntpTimeoutMs)
   {
-    Serial.println("No NTP response");
-    ntpDone_ = true;
+    Serial.print("No NTP response: ");
+    Serial.println(ntpServerNames[ntpServerIndex_]);
     ntpWaiting_ = false;
+    ntpServerIndex_++;
+    startNtpRequest();
   }
+
+  return false;
 }
 
-void NetworkRefreshService::service(String &cityCode, WeatherHandler weatherHandler)
+bool NetworkRefreshService::service(String &cityCode, WeatherHandler weatherHandler)
 {
   if (!active_)
-    return;
+    return false;
 
   serviceWeather(cityCode, weatherHandler);
-  serviceNtp();
+  const bool timeUpdated = serviceNtp();
 
   if (!weatherDone_ || !ntpDone_)
-    return;
+    return timeUpdated;
 
 #if !OTA_EN
   WiFi.forceSleepBegin();
   Serial.println("WIFI sleep......");
 #endif
   active_ = false;
+  return timeUpdated;
 }
