@@ -79,7 +79,7 @@ Button2 Button_sw1 = Button2(4);
 void sendNTPpacket(IPAddress &address); //向NTP服务器发送请求
 time_t getNtpTime();                    //从NTP获取时间
 
-// void digitalClockDisplay(int reflash_en);
+void digitalClockDisplay(int reflash_en = 0);
 void printDigits(int digits);
 String num2str(int digits);
 void LCD_reflash();
@@ -94,6 +94,8 @@ void esp_reset(Button2 &btn);
 void scrollBanner();
 void weaterData(String *cityDZ, String *dataSK, String *dataFC); //天气信息写到屏幕上
 void refresh_AnimatedImage();                                    //更新右下角
+void drawMainScreen();
+void showWifiStatus(const String &status);
 
 //创建时间更新函数线程
 Thread reflash_time = Thread();
@@ -215,31 +217,28 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
   return 1;
 }
 
-//进度条函数
-byte loadNum = 6;
-void loading(byte delayTime) //绘制进度条
+//在主界面的信息栏显示 WiFi 状态
+void showWifiStatus(const String &status)
 {
   clk.setColorDepth(8);
-
-  clk.createSprite(200, 100); //创建窗口
-  clk.fillSprite(0x0000);     //填充率
-
-  clk.drawRoundRect(0, 0, 200, 16, 8, 0xFFFF);     //空心圆角矩形
-  clk.fillRoundRect(3, 3, loadNum, 10, 5, 0xFFFF); //实心圆角矩形
-  clk.setTextDatum(CC_DATUM);                      //设置文本数据
-  clk.setTextColor(TFT_GREEN, 0x0000);
-  clk.drawString("Connecting to WiFi......", 100, 40, 2);
-  clk.setTextColor(TFT_WHITE, 0x0000);
-  clk.drawRightString(Version, 180, 60, 2);
-  clk.pushSprite(20, 120); //窗口位置
-
-  // clk.setTextDatum(CC_DATUM);
-  // clk.setTextColor(TFT_WHITE, 0x0000);
-  // clk.pushSprite(130,180);
-
+  clk.loadFont(ZdyLwFont_20);
+  clk.createSprite(150, 30);
+  clk.fillSprite(bgColor);
+  clk.setTextDatum(CC_DATUM);
+  clk.setTextColor(TFT_GREEN, bgColor);
+  clk.drawString(status, 74, 16);
+  clk.pushSprite(10, 45);
   clk.deleteSprite();
-  loadNum += 1;
-  delay(delayTime);
+  clk.unloadFont();
+}
+
+//先绘制主界面，联网和数据更新在界面显示后继续进行
+void drawMainScreen()
+{
+  tft.fillScreen(TFT_BLACK);
+  TJpgDec.drawJpg(15, 183, temperature, sizeof(temperature));
+  TJpgDec.drawJpg(15, 213, humidity, sizeof(humidity));
+  digitalClockDisplay(1);
 }
 
 //湿度图标显示函数
@@ -335,7 +334,6 @@ void SmartConfig(void)
       break;
     }
   }
-  loadNum = 194;
 }
 #endif
 
@@ -697,10 +695,8 @@ void saveParamCallback()
     delay(5);
   }
   tft.setRotation(LCD_Rotation);
-  tft.fillScreen(0x0000);
-  Web_win();
-  loadNum--;
-  loading(1);
+  drawMainScreen();
+  showWifiStatus("WiFi 连接中...");
   if (EEPROM.read(BL_addr) != LCD_BL_PWM)
   {
     EEPROM.write(BL_addr, LCD_BL_PWM);
@@ -1041,7 +1037,7 @@ int Hour_sign = 60;
 int Minute_sign = 60;
 int Second_sign = 60;
 // 日期刷新
-void digitalClockDisplay(int reflash_en = 0)
+void digitalClockDisplay(int reflash_en)
 {
   // 时钟刷新,输入1强制刷新
   int now_hour = hour();     //获取小时
@@ -1279,20 +1275,24 @@ void setup()
   tft.setTextColor(TFT_BLACK, bgColor);
 
   targetTime = millis() + 1000;
-  readwificonfig(); //读取存储的wifi信息
-  Serial.print("正在连接WIFI ");
-  Serial.println(wificonf.stassid);
-  WiFi.begin(wificonf.stassid, wificonf.stapsw);
 
   TJpgDec.setJpgScale(1);
   TJpgDec.setSwapBytes(true);
   TJpgDec.setCallback(tft_output);
 
+  drawMainScreen();
+  showWifiStatus("WiFi 连接中...");
+
+  readwificonfig(); //读取存储的wifi信息
+  Serial.print("正在连接WIFI ");
+  Serial.println(wificonf.stassid);
+  WiFi.begin(wificonf.stassid, wificonf.stapsw);
+
+  const unsigned long wifiConnectStart = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
-    loading(30);
-
-    if (loadNum >= 194)
+    delay(30);
+    if (millis() - wifiConnectStart >= 6000)
     {
 //使能web配网后自动将smartconfig配网失效
 #if WM_EN
@@ -1305,11 +1305,6 @@ void setup()
 #endif
       break;
     }
-  }
-  delay(10);
-  while (loadNum < 194) //让动画走完
-  {
-    loading(1);
   }
 
   if (WiFi.status() == WL_CONNECTED)
@@ -1355,11 +1350,6 @@ void setup()
     cityCode = CityCODE;
   else
     getCityCode(); //获取城市代码
-
-  tft.fillScreen(TFT_BLACK); //清屏
-
-  TJpgDec.drawJpg(15, 183, temperature, sizeof(temperature)); //温度图标
-  TJpgDec.drawJpg(15, 213, humidity, sizeof(humidity));       //湿度图标
 
   getCityWeater();
 #if DHT_EN
