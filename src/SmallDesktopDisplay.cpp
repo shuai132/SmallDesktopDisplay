@@ -38,13 +38,11 @@
 #include <TJpg_Decoder.h>
 #include <EEPROM.h>                 //内存
 #include <Button2.h>                //按钮库
-#include <Thread.h>                 //协程
-#include <StaticThreadController.h> //协程控制
 
-#include "config.h"                  //配置文件
-#include "weatherNum/weatherNum.h"   //天气图库
-#include "Animate/Animate.h"         //动画模块
-#include "wifiReFlash/wifiReFlash.h" //WIFI功能模块
+#include "config.h"                //配置文件
+#include "weatherNum/weatherNum.h" //天气图库
+#include "Animate/Animate.h"       //动画模块
+#include "Scheduler/PeriodicTask.h"
 
 #define Version "SDD V1.4.3"
 /* *****************************************************************
@@ -78,7 +76,6 @@ Button2 Button_sw1 = Button2(4);
 
 //函数声明
 void sendNTPpacket(IPAddress &address); //向NTP服务器发送请求
-time_t getNtpTime();                    //从NTP获取时间
 
 void digitalClockDisplay(int reflash_en = 0);
 void printDigits(int digits);
@@ -101,21 +98,11 @@ void refresh_AnimatedImage();                                    //更新右下�
 void drawMainScreen();
 void showWifiStatus(const String &status);
 void refreshConnectingScreen();
-
-//创建时间更新函数线程
-Thread reflash_time = Thread();
-//创建副标题切换线程
-Thread reflash_Banner = Thread();
-//创建恢复WIFI链接
-Thread reflash_openWifi = Thread();
-//创建动画绘制线程
-Thread reflash_Animate = Thread();
-
-//创建协程池
-StaticThreadController<4> controller(&reflash_time, &reflash_Banner, &reflash_openWifi, &reflash_Animate);
-
-//联网后所有需要更新的数据
-Thread WIFI_reflash = Thread();
+void refreshTime();
+void refreshBanner();
+void wakeWifi();
+void serviceScheduledTasks();
+void setWeatherUpdateInterval();
 
 /* *****************************************************************
  *  参数设置
@@ -130,7 +117,7 @@ struct config_type
 config_type wificonf = {{"WiFi名"}, {"密码"}};
 
 //天气更新时间  X 分钟
-unsigned int updateweater_time = 1;
+unsigned int weatherUpdateMinutes = 1;
 
 //----------------------------------------------------
 
@@ -143,10 +130,8 @@ uint16_t bgColor = 0x0000;
 //其余状态标志位
 int LCD_Rotation = 0;        // LCD屏幕方向
 int LCD_BL_PWM = 50;         //屏幕亮度0-100，默认50
-uint8_t Wifi_en = 1;         // WIFI模块启动  1：打开    0：关闭
-uint8_t UpdateWeater_en = 0; //更新时间标志位
-int prevTime = 0;            //滚动显示更新标志位
-int DHT_img_flag = 0;        // DHT传感器使用标志位
+bool wifiRefreshRequested = true;
+int DHT_img_flag = 0; // DHT传感器使用标志位
 
 // EEPROM参数存储地址位
 int BL_addr = 1;    //被写入数据的EEPROM地址编号  1亮度
@@ -155,13 +140,10 @@ int DHT_addr = 3;   // 3 DHT使能标志位
 int CC_addr = 10;   //被写入数据的EEPROM地址编号  10城市
 int wifi_addr = 30; //被写入数据的EEPROM地址编号  20wifi-ssid-psw
 
-time_t prevDisplay = 0;       //显示时间显示记录
-int Amimate_reflash_Time = 0; //更新时间记录
-
 /*** Component objects ***/
 WeatherNum wrat;
+AnimationPlayer animationPlayer;
 
-uint32_t targetTime = 0;
 String cityCode = "101090609"; //天气城市代码
 int tempnum = 0;               //温度百分比
 int huminum = 0;               //湿度百分比
@@ -176,7 +158,6 @@ const int timeZone = 8; //东八区
 WiFiUDP Udp;
 WiFiClient wificlient;
 unsigned int localPort = 8000;
-float duty = 0;
 
 enum AsyncWeatherState
 {
@@ -457,7 +438,6 @@ void Serial_set()
         tft.setRotation(RoSet);
         tft.fillScreen(0x0000);
         LCD_reflash(); //屏幕刷新程序
-        UpdateWeater_en = 1;
         TJpgDec.drawJpg(15, 183, temperature, sizeof(temperature)); //温度图标
         TJpgDec.drawJpg(15, 213, humidity, sizeof(humidity));       //湿度图标
 
@@ -474,10 +454,11 @@ void Serial_set()
       int wtup = atoi(incomingByte.c_str()); // int n = atoi(xxx.c_str());//String转int
       if (wtup >= 1 && wtup <= 60)
       {
-        updateweater_time = wtup;
+        weatherUpdateMinutes = wtup;
+        setWeatherUpdateInterval();
         SMOD = "";
         Serial.printf("天气更新时间更改为：");
-        Serial.print(updateweater_time);
+        Serial.print(weatherUpdateMinutes);
         Serial.println("分钟");
       }
       else
@@ -502,7 +483,7 @@ void Serial_set()
       else if (SMOD == "0x04")
       {
         Serial.print("当前天气更新时间：");
-        Serial.print(updateweater_time);
+        Serial.print(weatherUpdateMinutes);
         Serial.println("分钟");
         Serial.println("请输入天气更新时间（1-60）分钟");
       }
@@ -697,7 +678,8 @@ void saveParamCallback()
 #if DHT_EN
   DHT_img_flag = getParam("DHT11_en").toInt();
 #endif
-  updateweater_time = getParam("WeaterUpdateTime").toInt();
+  weatherUpdateMinutes = getParam("WeaterUpdateTime").toInt();
+  setWeatherUpdateInterval();
   cc = getParam("CityCode").toInt();
   LCD_Rotation = getParam("set_rotation").toInt();
   LCD_BL_PWM = getParam("LCDBL").toInt();
@@ -747,7 +729,7 @@ void saveParamCallback()
   Serial.println(LCD_BL_PWM);
   // 天气更新时间
   Serial.printf("天气更新时间调整为：");
-  Serial.println(updateweater_time);
+  Serial.println(weatherUpdateMinutes);
 
 #if DHT_EN
   // 是否使用DHT11传感器
@@ -1006,9 +988,6 @@ TFT_eSprite clkb = TFT_eSprite(&tft);
 
 void scrollBanner()
 {
-  // if(millis() - prevTime > 2333) //3秒切换一次
-  //  if(second()%2 ==0&& prevTime == 0)
-  //  {
   if (scrollText[currentIndex])
   {
     clkb.setColorDepth(8);
@@ -1029,8 +1008,6 @@ void scrollBanner()
     else
       currentIndex += 1; //准备切换到下一个
   }
-  prevTime = 1;
-  //  }
 }
 
 // 用快速线方法绘制数字
@@ -1136,41 +1113,6 @@ void digitalClockDisplay(int reflash_en)
 const int NTP_PACKET_SIZE = 48;     // NTP时间在消息的前48字节中
 byte packetBuffer[NTP_PACKET_SIZE]; // buffer to hold incoming & outgoing packets
 
-time_t getNtpTime()
-{
-  IPAddress ntpServerIP; // NTP server's ip address
-
-  while (Udp.parsePacket() > 0)
-    ; // discard any previously received packets
-  // Serial.println("Transmit NTP Request");
-  //  get a random server from the pool
-  WiFi.hostByName(ntpServerName, ntpServerIP);
-  // Serial.print(ntpServerName);
-  // Serial.print(": ");
-  // Serial.println(ntpServerIP);
-  sendNTPpacket(ntpServerIP);
-  uint32_t beginWait = millis();
-  while (millis() - beginWait < 1500)
-  {
-    int size = Udp.parsePacket();
-    if (size >= NTP_PACKET_SIZE)
-    {
-      Serial.println("Receive NTP Response");
-      Udp.read(packetBuffer, NTP_PACKET_SIZE); // read packet into the buffer
-      unsigned long secsSince1900;
-      // convert four bytes starting at location 40 to a long integer
-      secsSince1900 = (unsigned long)packetBuffer[40] << 24;
-      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
-      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
-      secsSince1900 |= (unsigned long)packetBuffer[43];
-      // Serial.println(secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR);
-      return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
-    }
-  }
-  Serial.println("No NTP Response :-(");
-  return 0; // 无法获取时间时返回0
-}
-
 // 向NTP服务器发送请求
 void sendNTPpacket(IPAddress &address)
 {
@@ -1209,16 +1151,13 @@ void wifi_reset(Button2 &btn)
 }
 
 //更新时间
-void reflashTime()
+void refreshTime()
 {
-  prevDisplay = now();
-  // timeClockDisplay(1);
   digitalClockDisplay();
-  prevTime = 0;
 }
 
 //切换天气 or 空气质量
-void reflashBanner()
+void refreshBanner()
 {
 #if DHT_EN
   if (DHT_img_flag != 0)
@@ -1352,7 +1291,7 @@ void serviceNetworkRefresh()
     WiFi.forceSleepBegin();
     Serial.println("WIFI sleep......");
 #endif
-    Wifi_en = 0;
+    wifiRefreshRequested = false;
     networkRefreshActive = false;
   }
 }
@@ -1360,7 +1299,7 @@ void serviceNetworkRefresh()
 //所有需要联网后更新的方法都放在这里
 void WIFI_reflash_All()
 {
-  if (Wifi_en == 1 && !networkRefreshActive)
+  if (wifiRefreshRequested && !networkRefreshActive)
   {
     if (WiFi.status() == WL_CONNECTED)
     {
@@ -1372,29 +1311,38 @@ void WIFI_reflash_All()
 }
 
 // 打开WIFI
-void openWifi()
+void wakeWifi()
 {
   Serial.println("WIFI reset......");
   WiFi.forceSleepWake(); // wifi on
-  Wifi_en = 1;
+  wifiRefreshRequested = true;
 }
 
 // 强制屏幕刷新
 void LCD_reflash()
 {
-  reflashTime();
-  reflashBanner();
-  openWifi();
+  refreshTime();
+  refreshBanner();
+  wakeWifi();
 }
 
-// 守护线程池
-void Supervisor_controller()
+PeriodicTask clockTask(refreshTime, 300);
+PeriodicTask bannerTask(refreshBanner, 2 * TMS);
+PeriodicTask wifiTask(wakeWifi, 60 * TMS);
+PeriodicTask animationTask(refresh_AnimatedImage, TMS / 10);
+
+void setWeatherUpdateInterval()
 {
-  if (controller.shouldRun())
-  {
-    // Serial.println("controller 启动");
-    controller.run();
-  }
+  wifiTask.setInterval(weatherUpdateMinutes * 60UL * TMS);
+}
+
+void serviceScheduledTasks()
+{
+  const uint32_t now = millis();
+  clockTask.run(now);
+  bannerTask.run(now);
+  wifiTask.run(now);
+  animationTask.run(now);
 }
 
 void setup()
@@ -1426,8 +1374,6 @@ void setup()
   tft.setRotation(LCD_Rotation);
   tft.fillScreen(0x0000);
   tft.setTextColor(TFT_BLACK, bgColor);
-
-  targetTime = millis() + 1000;
 
   TJpgDec.setJpgScale(1);
   TJpgDec.setSwapBytes(true);
@@ -1507,33 +1453,22 @@ void setup()
     IndoorTem();
 #endif
 
-  reflash_time.setInterval(300); //设置所需间隔 100毫秒
-  reflash_time.onRun(reflashTime);
-
-  reflash_Banner.setInterval(2 * TMS); //设置所需间隔 2秒
-  reflash_Banner.onRun(reflashBanner);
-
-  reflash_openWifi.setInterval(updateweater_time * 60 * TMS); //设置所需间隔 10分钟
-  reflash_openWifi.onRun(openWifi);
-
-  reflash_Animate.setInterval(TMS / 10); //设置帧率
-  reflash_Animate.onRun(refresh_AnimatedImage);
-  controller.run();
+  const uint32_t now = millis();
+  clockTask.start(now);
+  bannerTask.start(now);
+  setWeatherUpdateInterval();
+  wifiTask.start(now);
+  animationTask.start(now, true);
 }
 
-const uint8_t *Animate_value; //指向关键帧的指针
-uint32_t Animate_size;        //指向关键帧大小的指针
 void refresh_AnimatedImage()
 {
 #if Animate_Choice
   if (DHT_img_flag == 0)
   {
-    if (millis() - Amimate_reflash_Time > 100) // x ms切换一次
-    {
-      Amimate_reflash_Time = millis();
-      imgAnim(&Animate_value, &Animate_size);
-      TJpgDec.drawJpg(160, 160, Animate_value, Animate_size);
-    }
+    AnimationFrame frame;
+    if (animationPlayer.nextFrame(frame))
+      TJpgDec.drawJpg(160, 160, frame.data, frame.size);
   }
 #endif
 }
@@ -1543,10 +1478,8 @@ void loop()
 #if OTA_EN
   ArduinoOTA.handle();
 #endif
-  // refresh_AnimatedImage(&TJpgDec); //更新右下角
-  refresh_AnimatedImage(); //更新右下角
-  Supervisor_controller(); // 守护线程池
-  WIFI_reflash_All();      // WIFI应用
-  Serial_set();            //串口响应
-  Button_sw1.loop();       //按钮轮询
+  serviceScheduledTasks();
+  WIFI_reflash_All();
+  Serial_set();
+  Button_sw1.loop();
 }

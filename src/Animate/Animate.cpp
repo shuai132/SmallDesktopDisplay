@@ -1,33 +1,28 @@
 #include "Animate.h"
 #include "config.h"
 
-#if Animate_Choice != 0
-int Animate_key = -1; //初始化图标显示帧数
-#endif
-
 #if Animate_Choice == 1
 #include "img/astronaut.h"
 #elif Animate_Choice == 2
 #include "img/hutao.h"
 #endif
 
-void imgAnim(const uint8_t **Animate_value, uint32_t *Animate_size)
+bool AnimationPlayer::nextFrame(AnimationFrame &frame)
 {
-#if Animate_Choice != 0
-    Animate_key++;
-#endif
-
-//太空人起飞
 #if Animate_Choice == 1
-    *Animate_value = astronaut[Animate_key];
-    *Animate_size = astronaut[Animate_key];
-    if (Animate_key >= 9)
-        Animate_key = -1;
-//胡桃摇
+  constexpr int16_t frameCount = 10;
+  frameIndex_ = (frameIndex_ + 1) % frameCount;
+  frame.data = astronaut[frameIndex_];
+  frame.size = astronaut_size[frameIndex_];
+  return true;
 #elif Animate_Choice == 2
-    *Animate_value = hutao[Animate_key];
-    *Animate_size = hutao_size[Animate_key];
-    if (Animate_key >= 31)
-        Animate_key = -1;
+  constexpr int16_t frameCount = 32;
+  frameIndex_ = (frameIndex_ + 1) % frameCount;
+  frame.data = hutao[frameIndex_];
+  frame.size = hutao_size[frameIndex_];
+  return true;
+#else
+  (void)frame;
+  return false;
 #endif
 }

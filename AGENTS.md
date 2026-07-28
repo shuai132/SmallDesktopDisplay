@@ -24,6 +24,10 @@ Follow the existing Arduino C++ style: two-space indentation in production code,
 
 Name new focused tests `test_<feature>.cpp` and keep fixtures close to the tested module. At minimum, require a successful `pio run`. For display, Wi-Fi, OTA, button, or sensor changes, verify on an ESP8266 device and record the board, display orientation, and observed result. Include screenshots or serial logs when visual or timing behavior changes.
 
+## Firmware Size Tracking
+
+Before every commit, run `pio run` and require a successful build. Replace the contents of `FIRMWARE_SIZE.txt` with only the exact `RAM:` and `Flash:` summary lines printed by that build, and include the file in the same commit. This file records only the current firmware size, not its history. Never estimate or reuse size values from an earlier build.
+
 ## Commit & Pull Request Guidelines
 
 Recent commits use concise conventional prefixes such as `feat:`, `fix:`, `build:`, and `chore:`; follow that pattern and keep each commit reviewable. Pull requests should explain the behavior change, list validation commands and hardware checks, link relevant issues, and include before/after images for UI changes. Call out changes to pins, dependencies, network behavior, or persistent EEPROM data.

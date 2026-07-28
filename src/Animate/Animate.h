@@ -1,10 +1,21 @@
-#ifndef ANIMATE_h
-#define ANIMATE_h
+#ifndef ANIMATE_H
+#define ANIMATE_H
 
-// extern int DHT_img_flag; // DHT传感器使用标志位
-typedef unsigned char uint8_t;
-typedef unsigned int uint32_t;
+#include <Arduino.h>
 
-void imgAnim(const uint8_t **Animate_value, uint32_t *Animate_size); //动画函数
+struct AnimationFrame
+{
+  const uint8_t *data;
+  uint32_t size;
+};
+
+class AnimationPlayer
+{
+public:
+  bool nextFrame(AnimationFrame &frame);
+
+private:
+  int16_t frameIndex_ = -1;
+};
 
 #endif
