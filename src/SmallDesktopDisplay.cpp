@@ -28,10 +28,8 @@
 #include <ArduinoJson.h>
 #include <TimeLib.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
 #include <ArduinoOTA.h>
-#include <asyncHTTPrequest.h>
 #include <WiFiUdp.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
@@ -42,6 +40,7 @@
 #include "config.h"                //配置文件
 #include "weatherNum/weatherNum.h" //天气图库
 #include "Animate/Animate.h"       //动画模块
+#include "Network/NetworkRefreshService.h"
 #include "Scheduler/PeriodicTask.h"
 
 #define Version "SDD V1.4.3"
@@ -75,25 +74,19 @@ Button2 Button_sw1 = Button2(4);
 #include "img/humidity.h"       //湿度图标
 
 //函数声明
-void sendNTPpacket(IPAddress &address); //向NTP服务器发送请求
-
-void digitalClockDisplay(int reflash_en = 0);
+void digitalClockDisplay(bool forceRefresh = false);
 void printDigits(int digits);
 String num2str(int digits);
-void LCD_reflash();
+void refreshDisplay();
 void savewificonfig();         // wifi ssid，psw保存到eeprom
 void readwificonfig();         //从eeprom读取WiFi信息ssid，psw
 void deletewificonfig();       //删除原有eeprom中的信息
-void getCityCode();            //发送HTTP请求并且将服务器响应通过串口输出
-void getCityWeater();          //获取城市天气
 void parseWeatherResponse(const String &response);
-void startNetworkRefresh();
-void serviceNetworkRefresh();
 void wifi_reset(Button2 &btn); // WIFI重设
 void saveParamCallback();
 void esp_reset(Button2 &btn);
 void scrollBanner();
-void weaterData(String *cityDZ, String *dataSK, String *dataFC); //天气信息写到屏幕上
+void renderWeatherData(String *cityDZ, String *dataSK, String *dataFC);
 void refresh_AnimatedImage();                                    //更新右下角
 void drawMainScreen();
 void showWifiStatus(const String &status);
@@ -150,35 +143,10 @@ int huminum = 0;               //湿度百分比
 int tempcol = 0xffff;          //温度显示颜色
 int humicol = 0xffff;          //湿度显示颜色
 
-// NTP服务器参数
-static const char ntpServerName[] = "ntp6.aliyun.com";
-const int timeZone = 8; //东八区
-
 // wifi连接UDP设置参数
 WiFiUDP Udp;
-WiFiClient wificlient;
 unsigned int localPort = 8000;
-
-enum AsyncWeatherState
-{
-  ASYNC_WEATHER_IDLE,
-  ASYNC_CITY_REQUEST,
-  ASYNC_WEATHER_REQUEST
-};
-
-enum AsyncNtpState
-{
-  ASYNC_NTP_IDLE,
-  ASYNC_NTP_WAITING
-};
-
-asyncHTTPrequest asyncWeatherRequest;
-AsyncWeatherState asyncWeatherState = ASYNC_WEATHER_IDLE;
-AsyncNtpState asyncNtpState = ASYNC_NTP_IDLE;
-bool networkRefreshActive = false;
-bool asyncWeatherDone = true;
-bool asyncNtpDone = true;
-uint32_t asyncNtpStarted = 0;
+NetworkRefreshService networkRefresh(Udp);
 
 //星期
 String week()
@@ -257,7 +225,7 @@ void drawMainScreen()
   tft.fillScreen(TFT_BLACK);
   TJpgDec.drawJpg(15, 183, temperature, sizeof(temperature));
   TJpgDec.drawJpg(15, 213, humidity, sizeof(humidity));
-  digitalClockDisplay(1);
+  digitalClockDisplay(true);
 }
 
 //湿度图标显示函数
@@ -358,7 +326,7 @@ void SmartConfig(void)
 
 String SMOD = ""; // 0亮度
 //串口调试设置函数
-void Serial_set()
+void serviceSerialCommands()
 {
   String incomingByte = "";
   if (Serial.available() > 0)
@@ -412,7 +380,6 @@ void Serial_set()
         if (cityCode == "0")
         {
           Serial.println("城市代码调整为：自动");
-          getCityCode(); //获取城市代码
         }
         else
         {
@@ -420,7 +387,7 @@ void Serial_set()
           Serial.println(cityCode);
         }
         Serial.println("");
-        getCityWeater(); //更新城市天气
+        wifiRefreshRequested = true;
         SMOD = "";
       }
       else
@@ -437,7 +404,7 @@ void Serial_set()
         //设置屏幕方向后重新刷屏并显示
         tft.setRotation(RoSet);
         tft.fillScreen(0x0000);
-        LCD_reflash(); //屏幕刷新程序
+        refreshDisplay();
         TJpgDec.drawJpg(15, 183, temperature, sizeof(temperature)); //温度图标
         TJpgDec.drawJpg(15, 213, humidity, sizeof(humidity));       //湿度图标
 
@@ -741,89 +708,6 @@ void saveParamCallback()
 }
 #endif
 
-// 发送HTTP请求并且将服务器响应通过串口输出
-void getCityCode()
-{
-  String URL = "http://wgeo.weather.com.cn/ip/?_=" + String(now());
-  //创建 HTTPClient 对象
-  HTTPClient httpClient;
-
-  //配置请求地址。此处也可以不使用端口号和PATH而单纯的
-  httpClient.begin(wificlient, URL);
-
-  //设置请求头中的User-Agent
-  httpClient.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1");
-  httpClient.addHeader("Referer", "http://www.weather.com.cn/");
-
-  //启动连接并发送HTTP请求
-  int httpCode = httpClient.GET();
-  Serial.print("Send GET request to URL: ");
-  Serial.println(URL);
-
-  //如果服务器响应OK则从服务器获取响应体信息并通过串口输出
-  if (httpCode == HTTP_CODE_OK)
-  {
-    String str = httpClient.getString();
-
-    int aa = str.indexOf("id=");
-    if (aa > -1)
-    {
-      // cityCode = str.substring(aa+4,aa+4+9).toInt();
-      cityCode = str.substring(aa + 4, aa + 4 + 9);
-      Serial.println(cityCode);
-      getCityWeater();
-    }
-    else
-    {
-      Serial.println("获取城市代码失败");
-    }
-  }
-  else
-  {
-    Serial.println("请求城市代码错误：");
-    Serial.println(httpCode);
-  }
-
-  //关闭ESP8266与服务器连接
-  httpClient.end();
-}
-
-// 获取城市天气
-void getCityWeater()
-{
-  // String URL = "http://d1.weather.com.cn/dingzhi/" + cityCode + ".html?_="+String(now());//新
-  String URL = "http://d1.weather.com.cn/weather_index/" + cityCode + ".html?_=" + String(now()); //原来
-  //创建 HTTPClient 对象
-  HTTPClient httpClient;
-
-  // httpClient.begin(URL);
-  httpClient.begin(wificlient, URL); //使用新方法
-
-  //设置请求头中的User-Agent
-  httpClient.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1");
-  httpClient.addHeader("Referer", "http://www.weather.com.cn/");
-
-  //启动连接并发送HTTP请求
-  int httpCode = httpClient.GET();
-  Serial.println("正在获取天气数据");
-  // Serial.println(URL);
-
-  //如果服务器响应OK则从服务器获取响应体信息并通过串口输出
-  if (httpCode == HTTP_CODE_OK)
-  {
-    String str = httpClient.getString();
-    parseWeatherResponse(str);
-  }
-  else
-  {
-    Serial.println("请求城市天气错误：");
-    Serial.print(httpCode);
-  }
-
-  //关闭ESP8266与服务器连接
-  httpClient.end();
-}
-
 void parseWeatherResponse(const String &response)
 {
   int indexStart = response.indexOf("weatherinfo\":");
@@ -838,7 +722,7 @@ void parseWeatherResponse(const String &response)
   indexEnd = response.indexOf(",{\"fa");
   String jsonFC = response.substring(indexStart + 5, indexEnd);
 
-  weaterData(&jsonCityDZ, &jsonDataSK, &jsonFC);
+  renderWeatherData(&jsonCityDZ, &jsonDataSK, &jsonFC);
   Serial.println("获取成功");
 }
 
@@ -846,7 +730,7 @@ String scrollText[7];
 // int scrollTextWidth = 0;
 
 // 天气信息写到屏幕上
-void weaterData(String *cityDZ, String *dataSK, String *dataFC)
+void renderWeatherData(String *cityDZ, String *dataSK, String *dataFC)
 {
   // 解析第一段JSON
   DynamicJsonDocument doc(1024);
@@ -1052,36 +936,34 @@ int Hour_sign = 60;
 int Minute_sign = 60;
 int Second_sign = 60;
 // 日期刷新
-void digitalClockDisplay(int reflash_en)
+void digitalClockDisplay(bool forceRefresh)
 {
   // 时钟刷新,输入1强制刷新
   int now_hour = hour();     //获取小时
   int now_minute = minute(); //获取分钟
   int now_second = second(); //获取秒针
   //小时刷新
-  if ((now_hour != Hour_sign) || (reflash_en == 1))
+  if (now_hour != Hour_sign || forceRefresh)
   {
     drawLineFont(20, timeY, now_hour / 10, 3, SD_FONT_WHITE);
     drawLineFont(60, timeY, now_hour % 10, 3, SD_FONT_WHITE);
     Hour_sign = now_hour;
   }
   //分钟刷新
-  if ((now_minute != Minute_sign) || (reflash_en == 1))
+  if (now_minute != Minute_sign || forceRefresh)
   {
     drawLineFont(101, timeY, now_minute / 10, 3, SD_FONT_YELLOW);
     drawLineFont(141, timeY, now_minute % 10, 3, SD_FONT_YELLOW);
     Minute_sign = now_minute;
   }
   //秒针刷新
-  if ((now_second != Second_sign) || (reflash_en == 1)) //分钟刷新
+  if (now_second != Second_sign || forceRefresh)
   {
     drawLineFont(182, timeY + 30, now_second / 10, 2, SD_FONT_WHITE);
     drawLineFont(202, timeY + 30, now_second % 10, 2, SD_FONT_WHITE);
     Second_sign = now_second;
   }
 
-  if (reflash_en == 1)
-    reflash_en = 0;
   /***日期****/
   clk.setColorDepth(8);
   clk.loadFont(ZdyLwFont_20);
@@ -1106,34 +988,6 @@ void digitalClockDisplay(int reflash_en)
 
   clk.unloadFont();
   /***日期****/
-}
-
-/*-------- NTP code ----------*/
-
-const int NTP_PACKET_SIZE = 48;     // NTP时间在消息的前48字节中
-byte packetBuffer[NTP_PACKET_SIZE]; // buffer to hold incoming & outgoing packets
-
-// 向NTP服务器发送请求
-void sendNTPpacket(IPAddress &address)
-{
-  // set all bytes in the buffer to 0
-  memset(packetBuffer, 0, NTP_PACKET_SIZE);
-  // Initialize values needed to form NTP request
-  // (see URL above for details on the packets)
-  packetBuffer[0] = 0b11100011; // LI, Version, Mode
-  packetBuffer[1] = 0;          // Stratum, or type of clock
-  packetBuffer[2] = 6;          // Polling Interval
-  packetBuffer[3] = 0xEC;       // Peer Clock Precision
-  // 8 bytes of zero for Root Delay & Root Dispersion
-  packetBuffer[12] = 49;
-  packetBuffer[13] = 0x4E;
-  packetBuffer[14] = 49;
-  packetBuffer[15] = 52;
-  // all NTP fields have been given values, now
-  // you can send a packet requesting a timestamp:
-  Udp.beginPacket(address, 123); // NTP requests are to port 123
-  Udp.write(packetBuffer, NTP_PACKET_SIZE);
-  Udp.endPacket();
 }
 
 void esp_reset(Button2 &btn)
@@ -1166,148 +1020,19 @@ void refreshBanner()
   scrollBanner();
 }
 
-void startAsyncWeatherRequest(const String &url, AsyncWeatherState state)
+void serviceNetwork()
 {
-  if (!asyncWeatherRequest.open("GET", url.c_str()))
-  {
-    Serial.println("Unable to start weather request");
-    asyncWeatherDone = true;
-    asyncWeatherState = ASYNC_WEATHER_IDLE;
-    return;
-  }
-
-  asyncWeatherRequest.setTimeout(3);
-  asyncWeatherRequest.setReqHeader("User-Agent", "Mozilla/5.0");
-  asyncWeatherRequest.setReqHeader("Referer", "http://www.weather.com.cn/");
-  asyncWeatherState = state;
-  if (!asyncWeatherRequest.send())
-  {
-    Serial.println("Unable to send weather request");
-    asyncWeatherDone = true;
-    asyncWeatherState = ASYNC_WEATHER_IDLE;
-  }
-}
-
-void startNetworkRefresh()
-{
-  networkRefreshActive = true;
-  asyncWeatherDone = false;
-  asyncNtpDone = false;
-
-  int cityNumber = cityCode.toInt();
-  if (cityNumber >= 101000000 && cityNumber <= 102000000)
-  {
-    String url = "http://d1.weather.com.cn/weather_index/" + cityCode + ".html?_=" + String(now());
-    startAsyncWeatherRequest(url, ASYNC_WEATHER_REQUEST);
-  }
-  else
-  {
-    String url = "http://wgeo.weather.com.cn/ip/?_=" + String(now());
-    startAsyncWeatherRequest(url, ASYNC_CITY_REQUEST);
-  }
-
-  IPAddress ntpServerIP;
-  if (WiFi.hostByName(ntpServerName, ntpServerIP, 100))
-  {
-    sendNTPpacket(ntpServerIP);
-    asyncNtpStarted = millis();
-    asyncNtpState = ASYNC_NTP_WAITING;
-  }
-  else
-  {
-    Serial.println("NTP DNS lookup failed");
-    asyncNtpDone = true;
-  }
-}
-
-void serviceNetworkRefresh()
-{
-  if (!networkRefreshActive)
-    return;
-
-  if (!asyncWeatherDone && asyncWeatherRequest.readyState() == 4)
-  {
-    if (asyncWeatherRequest.responseHTTPcode() == HTTP_CODE_OK)
-    {
-      String response = asyncWeatherRequest.responseText();
-      if (asyncWeatherState == ASYNC_CITY_REQUEST)
-      {
-        int cityIndex = response.indexOf("id=");
-        if (cityIndex >= 0)
-        {
-          cityCode = response.substring(cityIndex + 4, cityIndex + 13);
-          String url = "http://d1.weather.com.cn/weather_index/" + cityCode + ".html?_=" + String(now());
-          startAsyncWeatherRequest(url, ASYNC_WEATHER_REQUEST);
-        }
-        else
-        {
-          Serial.println("Unable to find city code");
-          asyncWeatherDone = true;
-          asyncWeatherState = ASYNC_WEATHER_IDLE;
-        }
-      }
-      else
-      {
-        parseWeatherResponse(response);
-        asyncWeatherDone = true;
-        asyncWeatherState = ASYNC_WEATHER_IDLE;
-      }
-    }
-    else
-    {
-      Serial.print("Async weather request failed: ");
-      Serial.println(asyncWeatherRequest.responseHTTPcode());
-      asyncWeatherDone = true;
-      asyncWeatherState = ASYNC_WEATHER_IDLE;
-    }
-  }
-
-  if (!asyncNtpDone && asyncNtpState == ASYNC_NTP_WAITING)
-  {
-    int size = Udp.parsePacket();
-    if (size >= NTP_PACKET_SIZE)
-    {
-      Udp.read(packetBuffer, NTP_PACKET_SIZE);
-      unsigned long secsSince1900 = (unsigned long)packetBuffer[40] << 24;
-      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
-      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
-      secsSince1900 |= (unsigned long)packetBuffer[43];
-      setTime(secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR);
-      digitalClockDisplay(1);
-      asyncNtpDone = true;
-      asyncNtpState = ASYNC_NTP_IDLE;
-    }
-    else if (millis() - asyncNtpStarted >= 1500)
-    {
-      Serial.println("No NTP response");
-      asyncNtpDone = true;
-      asyncNtpState = ASYNC_NTP_IDLE;
-    }
-  }
-
-  if (asyncWeatherDone && asyncNtpDone)
-  {
-#if !OTA_EN
-    WiFi.forceSleepBegin();
-    Serial.println("WIFI sleep......");
-#endif
-    wifiRefreshRequested = false;
-    networkRefreshActive = false;
-  }
-}
-
-//所有需要联网后更新的方法都放在这里
-void WIFI_reflash_All()
-{
-  if (wifiRefreshRequested && !networkRefreshActive)
+  if (wifiRefreshRequested && !networkRefresh.isActive())
   {
     if (WiFi.status() == WL_CONNECTED)
     {
       Serial.println("WIFI connected");
-      startNetworkRefresh();
+      networkRefresh.start(cityCode);
+      wifiRefreshRequested = false;
     }
   }
-  serviceNetworkRefresh();
+
+  networkRefresh.service(cityCode, parseWeatherResponse);
 }
 
 // 打开WIFI
@@ -1319,7 +1044,7 @@ void wakeWifi()
 }
 
 // 强制屏幕刷新
-void LCD_reflash()
+void refreshDisplay()
 {
   refreshTime();
   refreshBanner();
@@ -1479,7 +1204,7 @@ void loop()
   ArduinoOTA.handle();
 #endif
   serviceScheduledTasks();
-  WIFI_reflash_All();
-  Serial_set();
+  serviceNetwork();
+  serviceSerialCommands();
   Button_sw1.loop();
 }
