@@ -30,6 +30,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
+#include <ArduinoOTA.h>
 #include <WiFiUdp.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
@@ -1208,8 +1209,10 @@ void WIFI_reflash_All()
       getNtpTime();
       //其他需要联网的方法写在后面
 
+#if !OTA_EN
       WiFi.forceSleepBegin(); // Wifi Off
       Serial.println("WIFI sleep......");
+#endif
       Wifi_en = 0;
     }
     else
@@ -1319,6 +1322,14 @@ void setup()
     strcpy(wificonf.stapsw, WiFi.psk().c_str());   //密码复制
     savewificonfig();
     readwificonfig();
+
+#if OTA_EN
+    ArduinoOTA.setHostname(OTA_HOSTNAME);
+    ArduinoOTA.begin();
+    Serial.print("OTA ready: ");
+    Serial.print(OTA_HOSTNAME);
+    Serial.println(".local");
+#endif
   }
 
   Serial.print("本地IP： ");
@@ -1356,8 +1367,10 @@ void setup()
     IndoorTem();
 #endif
 
+#if !OTA_EN
   WiFi.forceSleepBegin(); // wifi off
   Serial.println("WIFI休眠......");
+#endif
   Wifi_en = 0;
 
   reflash_time.setInterval(300); //设置所需间隔 100毫秒
@@ -1393,6 +1406,9 @@ void refresh_AnimatedImage()
 
 void loop()
 {
+#if OTA_EN
+  ArduinoOTA.handle();
+#endif
   // refresh_AnimatedImage(&TJpgDec); //更新右下角
   refresh_AnimatedImage(); //更新右下角
   Supervisor_controller(); // 守护线程池
