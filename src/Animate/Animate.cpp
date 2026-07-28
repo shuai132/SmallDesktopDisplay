@@ -5,6 +5,8 @@
 #include "img/astronaut.h"
 #elif Animate_Choice == 2
 #include "img/hutao.h"
+#elif Animate_Choice == 3
+#include "img/longmao.h"
 #endif
 
 bool AnimationPlayer::nextFrame(AnimationFrame &frame)
@@ -20,6 +22,12 @@ bool AnimationPlayer::nextFrame(AnimationFrame &frame)
   frameIndex_ = (frameIndex_ + 1) % frameCount;
   frame.data = hutao[frameIndex_];
   frame.size = hutao_size[frameIndex_];
+  return true;
+#elif Animate_Choice == 3
+  frameIndex_ = (frameIndex_ + 1) % LONGMAO_FRAME_COUNT;
+  frame.data = reinterpret_cast<const uint8_t *>(
+      pgm_read_ptr(&longmaoFrames[frameIndex_]));
+  frame.size = pgm_read_dword(&longmaoFrameSizes[frameIndex_]);
   return true;
 #else
   (void)frame;

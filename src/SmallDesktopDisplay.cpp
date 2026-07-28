@@ -223,9 +223,7 @@ void refreshConnectingScreen()
 void drawMainScreen()
 {
   tft.fillScreen(TFT_BLACK);
-  TJpgDec.drawJpg(15, 183, temperature, sizeof(temperature));
-  TJpgDec.drawJpg(15, 213, humidity, sizeof(humidity));
-  digitalClockDisplay(true);
+  refresh_AnimatedImage();
 }
 
 //湿度图标显示函数
@@ -722,7 +720,9 @@ void parseWeatherResponse(const String &response)
   indexEnd = response.indexOf(",{\"fa");
   String jsonFC = response.substring(indexStart + 5, indexEnd);
 
+#if Animate_Choice != 3
   renderWeatherData(&jsonCityDZ, &jsonDataSK, &jsonFC);
+#endif
   Serial.println("获取成功");
 }
 
@@ -904,24 +904,18 @@ void drawLineFont(uint32_t _x, uint32_t _y, uint32_t _num, uint32_t _size, uint3
   {
     fontOne = smallLineFont[_num];
     fontSize = smallLineFont_size[_num];
-    // 绘制前清理字体绘制区域
-    tft.fillRect(_x, _y, 9, 14, TFT_BLACK);
   }
   // 中号(18*30)
   else if (_size == 2)
   {
     fontOne = middleLineFont[_num];
     fontSize = middleLineFont_size[_num];
-    // 绘制前清理字体绘制区域
-    tft.fillRect(_x, _y, 18, 30, TFT_BLACK);
   }
   // 大号(36*90)
   else if (_size == 3)
   {
     fontOne = largeLineFont[_num];
     fontSize = largeLineFont_size[_num];
-    // 绘制前清理字体绘制区域
-    tft.fillRect(_x, _y, 36, 90, TFT_BLACK);
   }
   else
     return;
@@ -964,30 +958,6 @@ void digitalClockDisplay(bool forceRefresh)
     Second_sign = now_second;
   }
 
-  /***日期****/
-  clk.setColorDepth(8);
-  clk.loadFont(ZdyLwFont_20);
-
-  //星期
-  clk.createSprite(58, 30);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_WHITE, bgColor);
-  clk.drawString(week(), 29, 16);
-  clk.pushSprite(102, 150);
-  clk.deleteSprite();
-
-  //月日
-  clk.createSprite(95, 30);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_WHITE, bgColor);
-  clk.drawString(monthDay(), 49, 16);
-  clk.pushSprite(5, 150);
-  clk.deleteSprite();
-
-  clk.unloadFont();
-  /***日期****/
 }
 
 void esp_reset(Button2 &btn)
@@ -1054,7 +1024,7 @@ void refreshDisplay()
 PeriodicTask clockTask(refreshTime, 300);
 PeriodicTask bannerTask(refreshBanner, 2 * TMS);
 PeriodicTask wifiTask(wakeWifi, 60 * TMS);
-PeriodicTask animationTask(refresh_AnimatedImage, TMS / 10);
+PeriodicTask animationTask(refresh_AnimatedImage, 80);
 
 void setWeatherUpdateInterval()
 {
@@ -1064,8 +1034,10 @@ void setWeatherUpdateInterval()
 void serviceScheduledTasks()
 {
   const uint32_t now = millis();
+#if Animate_Choice != 3
   clockTask.run(now);
   bannerTask.run(now);
+#endif
   wifiTask.run(now);
   animationTask.run(now);
 }
@@ -1179,8 +1151,10 @@ void setup()
 #endif
 
   const uint32_t now = millis();
+#if Animate_Choice != 3
   clockTask.start(now);
   bannerTask.start(now);
+#endif
   setWeatherUpdateInterval();
   wifiTask.start(now);
   animationTask.start(now, true);
@@ -1193,7 +1167,14 @@ void refresh_AnimatedImage()
   {
     AnimationFrame frame;
     if (animationPlayer.nextFrame(frame))
+    {
+#if Animate_Choice == 3
+      TJpgDec.drawJpg(0, 0, frame.data, frame.size);
+      digitalClockDisplay(true);
+#else
       TJpgDec.drawJpg(160, 160, frame.data, frame.size);
+#endif
+    }
   }
 #endif
 }
