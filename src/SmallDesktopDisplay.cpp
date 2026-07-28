@@ -31,6 +31,7 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
 #include <ArduinoOTA.h>
+#include <asyncHTTPrequest.h>
 #include <WiFiUdp.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
@@ -88,6 +89,9 @@ void readwificonfig();         //从eeprom读取WiFi信息ssid，psw
 void deletewificonfig();       //删除原有eeprom中的信息
 void getCityCode();            //发送HTTP请求并且将服务器响应通过串口输出
 void getCityWeater();          //获取城市天气
+void parseWeatherResponse(const String &response);
+void startNetworkRefresh();
+void serviceNetworkRefresh();
 void wifi_reset(Button2 &btn); // WIFI重设
 void saveParamCallback();
 void esp_reset(Button2 &btn);
@@ -96,6 +100,7 @@ void weaterData(String *cityDZ, String *dataSK, String *dataFC); //天气信息�
 void refresh_AnimatedImage();                                    //更新右下角
 void drawMainScreen();
 void showWifiStatus(const String &status);
+void refreshConnectingScreen();
 
 //创建时间更新函数线程
 Thread reflash_time = Thread();
@@ -173,6 +178,27 @@ WiFiClient wificlient;
 unsigned int localPort = 8000;
 float duty = 0;
 
+enum AsyncWeatherState
+{
+  ASYNC_WEATHER_IDLE,
+  ASYNC_CITY_REQUEST,
+  ASYNC_WEATHER_REQUEST
+};
+
+enum AsyncNtpState
+{
+  ASYNC_NTP_IDLE,
+  ASYNC_NTP_WAITING
+};
+
+asyncHTTPrequest asyncWeatherRequest;
+AsyncWeatherState asyncWeatherState = ASYNC_WEATHER_IDLE;
+AsyncNtpState asyncNtpState = ASYNC_NTP_IDLE;
+bool networkRefreshActive = false;
+bool asyncWeatherDone = true;
+bool asyncNtpDone = true;
+uint32_t asyncNtpStarted = 0;
+
 //星期
 String week()
 {
@@ -221,15 +247,27 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
 void showWifiStatus(const String &status)
 {
   clk.setColorDepth(8);
-  clk.loadFont(ZdyLwFont_20);
   clk.createSprite(150, 30);
   clk.fillSprite(bgColor);
   clk.setTextDatum(CC_DATUM);
   clk.setTextColor(TFT_GREEN, bgColor);
-  clk.drawString(status, 74, 16);
+  clk.drawString(status, 74, 16, 2);
   clk.pushSprite(10, 45);
   clk.deleteSprite();
-  clk.unloadFont();
+}
+
+// Keep the live parts of the main screen moving during blocking WiFi setup.
+void refreshConnectingScreen()
+{
+  static uint32_t lastClockRefresh = 0;
+  const uint32_t currentTime = millis();
+  if (currentTime - lastClockRefresh >= 300)
+  {
+    lastClockRefresh = currentTime;
+    digitalClockDisplay();
+  }
+  refresh_AnimatedImage();
+  yield();
 }
 
 //先绘制主界面，联网和数据更新在界面显示后继续进行
@@ -696,7 +734,7 @@ void saveParamCallback()
   }
   tft.setRotation(LCD_Rotation);
   drawMainScreen();
-  showWifiStatus("WiFi 连接中...");
+  showWifiStatus("WiFi Connecting...");
   if (EEPROM.read(BL_addr) != LCD_BL_PWM)
   {
     EEPROM.write(BL_addr, LCD_BL_PWM);
@@ -791,26 +829,8 @@ void getCityWeater()
   //如果服务器响应OK则从服务器获取响应体信息并通过串口输出
   if (httpCode == HTTP_CODE_OK)
   {
-
     String str = httpClient.getString();
-    int indexStart = str.indexOf("weatherinfo\":");
-    int indexEnd = str.indexOf("};var alarmDZ");
-
-    String jsonCityDZ = str.substring(indexStart + 13, indexEnd);
-    // Serial.println(jsonCityDZ);
-
-    indexStart = str.indexOf("dataSK =");
-    indexEnd = str.indexOf(";var dataZS");
-    String jsonDataSK = str.substring(indexStart + 8, indexEnd);
-    // Serial.println(jsonDataSK);
-
-    indexStart = str.indexOf("\"f\":[");
-    indexEnd = str.indexOf(",{\"fa");
-    String jsonFC = str.substring(indexStart + 5, indexEnd);
-    // Serial.println(jsonFC);
-
-    weaterData(&jsonCityDZ, &jsonDataSK, &jsonFC);
-    Serial.println("获取成功");
+    parseWeatherResponse(str);
   }
   else
   {
@@ -820,6 +840,24 @@ void getCityWeater()
 
   //关闭ESP8266与服务器连接
   httpClient.end();
+}
+
+void parseWeatherResponse(const String &response)
+{
+  int indexStart = response.indexOf("weatherinfo\":");
+  int indexEnd = response.indexOf("};var alarmDZ");
+  String jsonCityDZ = response.substring(indexStart + 13, indexEnd);
+
+  indexStart = response.indexOf("dataSK =");
+  indexEnd = response.indexOf(";var dataZS");
+  String jsonDataSK = response.substring(indexStart + 8, indexEnd);
+
+  indexStart = response.indexOf("\"f\":[");
+  indexEnd = response.indexOf(",{\"fa");
+  String jsonFC = response.substring(indexStart + 5, indexEnd);
+
+  weaterData(&jsonCityDZ, &jsonDataSK, &jsonFC);
+  Serial.println("获取成功");
 }
 
 String scrollText[7];
@@ -1189,33 +1227,148 @@ void reflashBanner()
   scrollBanner();
 }
 
+void startAsyncWeatherRequest(const String &url, AsyncWeatherState state)
+{
+  if (!asyncWeatherRequest.open("GET", url.c_str()))
+  {
+    Serial.println("Unable to start weather request");
+    asyncWeatherDone = true;
+    asyncWeatherState = ASYNC_WEATHER_IDLE;
+    return;
+  }
+
+  asyncWeatherRequest.setTimeout(3);
+  asyncWeatherRequest.setReqHeader("User-Agent", "Mozilla/5.0");
+  asyncWeatherRequest.setReqHeader("Referer", "http://www.weather.com.cn/");
+  asyncWeatherState = state;
+  if (!asyncWeatherRequest.send())
+  {
+    Serial.println("Unable to send weather request");
+    asyncWeatherDone = true;
+    asyncWeatherState = ASYNC_WEATHER_IDLE;
+  }
+}
+
+void startNetworkRefresh()
+{
+  networkRefreshActive = true;
+  asyncWeatherDone = false;
+  asyncNtpDone = false;
+
+  int cityNumber = cityCode.toInt();
+  if (cityNumber >= 101000000 && cityNumber <= 102000000)
+  {
+    String url = "http://d1.weather.com.cn/weather_index/" + cityCode + ".html?_=" + String(now());
+    startAsyncWeatherRequest(url, ASYNC_WEATHER_REQUEST);
+  }
+  else
+  {
+    String url = "http://wgeo.weather.com.cn/ip/?_=" + String(now());
+    startAsyncWeatherRequest(url, ASYNC_CITY_REQUEST);
+  }
+
+  IPAddress ntpServerIP;
+  if (WiFi.hostByName(ntpServerName, ntpServerIP, 100))
+  {
+    sendNTPpacket(ntpServerIP);
+    asyncNtpStarted = millis();
+    asyncNtpState = ASYNC_NTP_WAITING;
+  }
+  else
+  {
+    Serial.println("NTP DNS lookup failed");
+    asyncNtpDone = true;
+  }
+}
+
+void serviceNetworkRefresh()
+{
+  if (!networkRefreshActive)
+    return;
+
+  if (!asyncWeatherDone && asyncWeatherRequest.readyState() == 4)
+  {
+    if (asyncWeatherRequest.responseHTTPcode() == HTTP_CODE_OK)
+    {
+      String response = asyncWeatherRequest.responseText();
+      if (asyncWeatherState == ASYNC_CITY_REQUEST)
+      {
+        int cityIndex = response.indexOf("id=");
+        if (cityIndex >= 0)
+        {
+          cityCode = response.substring(cityIndex + 4, cityIndex + 13);
+          String url = "http://d1.weather.com.cn/weather_index/" + cityCode + ".html?_=" + String(now());
+          startAsyncWeatherRequest(url, ASYNC_WEATHER_REQUEST);
+        }
+        else
+        {
+          Serial.println("Unable to find city code");
+          asyncWeatherDone = true;
+          asyncWeatherState = ASYNC_WEATHER_IDLE;
+        }
+      }
+      else
+      {
+        parseWeatherResponse(response);
+        asyncWeatherDone = true;
+        asyncWeatherState = ASYNC_WEATHER_IDLE;
+      }
+    }
+    else
+    {
+      Serial.print("Async weather request failed: ");
+      Serial.println(asyncWeatherRequest.responseHTTPcode());
+      asyncWeatherDone = true;
+      asyncWeatherState = ASYNC_WEATHER_IDLE;
+    }
+  }
+
+  if (!asyncNtpDone && asyncNtpState == ASYNC_NTP_WAITING)
+  {
+    int size = Udp.parsePacket();
+    if (size >= NTP_PACKET_SIZE)
+    {
+      Udp.read(packetBuffer, NTP_PACKET_SIZE);
+      unsigned long secsSince1900 = (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      setTime(secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR);
+      digitalClockDisplay(1);
+      asyncNtpDone = true;
+      asyncNtpState = ASYNC_NTP_IDLE;
+    }
+    else if (millis() - asyncNtpStarted >= 1500)
+    {
+      Serial.println("No NTP response");
+      asyncNtpDone = true;
+      asyncNtpState = ASYNC_NTP_IDLE;
+    }
+  }
+
+  if (asyncWeatherDone && asyncNtpDone)
+  {
+#if !OTA_EN
+    WiFi.forceSleepBegin();
+    Serial.println("WIFI sleep......");
+#endif
+    Wifi_en = 0;
+    networkRefreshActive = false;
+  }
+}
+
 //所有需要联网后更新的方法都放在这里
 void WIFI_reflash_All()
 {
-  if (Wifi_en == 1)
+  if (Wifi_en == 1 && !networkRefreshActive)
   {
     if (WiFi.status() == WL_CONNECTED)
     {
       Serial.println("WIFI connected");
-
-      // Serial.println("getCityWeater start");
-      getCityWeater();
-      // Serial.println("getCityWeater end");
-
-      getNtpTime();
-      //其他需要联网的方法写在后面
-
-#if !OTA_EN
-      WiFi.forceSleepBegin(); // Wifi Off
-      Serial.println("WIFI sleep......");
-#endif
-      Wifi_en = 0;
-    }
-    else
-    {
-      // Serial.println("WIFI unconnected");
+      startNetworkRefresh();
     }
   }
+  serviceNetworkRefresh();
 }
 
 // 打开WIFI
@@ -1281,7 +1434,7 @@ void setup()
   TJpgDec.setCallback(tft_output);
 
   drawMainScreen();
-  showWifiStatus("WiFi 连接中...");
+  showWifiStatus("WiFi Connecting...");
 
   readwificonfig(); //读取存储的wifi信息
   Serial.print("正在连接WIFI ");
@@ -1291,7 +1444,8 @@ void setup()
   const unsigned long wifiConnectStart = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
-    delay(30);
+    refreshConnectingScreen();
+    delay(10);
     if (millis() - wifiConnectStart >= 6000)
     {
 //使能web配网后自动将smartconfig配网失效
@@ -1325,15 +1479,13 @@ void setup()
     Serial.print(OTA_HOSTNAME);
     Serial.println(".local");
 #endif
+    showWifiStatus("WiFi Connected");
   }
 
   Serial.print("本地IP： ");
   Serial.println(WiFi.localIP());
   Serial.println("启动UDP");
   Udp.begin(localPort);
-  Serial.println("等待同步...");
-  setSyncProvider(getNtpTime);
-  setSyncInterval(300);
 
   TJpgDec.setJpgScale(1);
   TJpgDec.setSwapBytes(true);
@@ -1349,19 +1501,11 @@ void setup()
   if (CityCODE >= 101000000 && CityCODE <= 102000000)
     cityCode = CityCODE;
   else
-    getCityCode(); //获取城市代码
-
-  getCityWeater();
+    cityCode = "0";
 #if DHT_EN
   if (DHT_img_flag != 0)
     IndoorTem();
 #endif
-
-#if !OTA_EN
-  WiFi.forceSleepBegin(); // wifi off
-  Serial.println("WIFI休眠......");
-#endif
-  Wifi_en = 0;
 
   reflash_time.setInterval(300); //设置所需间隔 100毫秒
   reflash_time.onRun(reflashTime);
@@ -1373,7 +1517,7 @@ void setup()
   reflash_openWifi.onRun(openWifi);
 
   reflash_Animate.setInterval(TMS / 10); //设置帧率
-  reflash_openWifi.onRun(refresh_AnimatedImage);
+  reflash_Animate.onRun(refresh_AnimatedImage);
   controller.run();
 }
 
