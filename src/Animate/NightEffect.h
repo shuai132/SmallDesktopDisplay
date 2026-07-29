@@ -28,7 +28,6 @@ private:
     int16_t y;
     int8_t vx;
     int8_t vy;
-    uint8_t tailLength;
     uint32_t nextStepAt;
     uint32_t nextLaunchAt;
     bool active;

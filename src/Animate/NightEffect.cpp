@@ -137,7 +137,7 @@ void NightEffect::updateMeteors(TFT_eSPI &tft, uint32_t now)
     meteor.y += meteor.vy;
     meteor.nextStepAt += 40;
 
-    if (meteor.x - meteor.tailLength > 244 || meteor.y > 211)
+    if (meteor.x > 242 || meteor.y > 211)
     {
       meteor.active = false;
       meteor.nextLaunchAt = now + 500 + index * 95 + (randomState_ % 700);
@@ -155,42 +155,22 @@ void NightEffect::launchMeteor(Meteor &meteor, uint8_t index, uint32_t now)
   meteor.y = 10 + (index % 5) * 38 + ((index / 5) * 13);
   meteor.vx = 4 + (index % 3);
   meteor.vy = 1 + (index & 1);
-  meteor.tailLength = 14 + (index % 4) * 5;
   meteor.nextStepAt = now;
   meteor.active = true;
 }
 
 void NightEffect::eraseMeteor(TFT_eSPI &tft, const Meteor &meteor)
 {
-  const int16_t tailX = meteor.x - meteor.tailLength;
-  const int16_t tailY =
-      meteor.y - (meteor.tailLength * meteor.vy) / meteor.vx;
-  tft.drawLine(tailX, tailY, meteor.x, meteor.y, NIGHT_SKY_COLOR);
-  tft.drawLine(tailX, tailY + 1, meteor.x, meteor.y + 1, NIGHT_SKY_COLOR);
+  tft.drawPixel(meteor.x, meteor.y, NIGHT_SKY_COLOR);
+  tft.drawPixel(meteor.x - 1, meteor.y, NIGHT_SKY_COLOR);
+  tft.drawPixel(meteor.x, meteor.y + 1, NIGHT_SKY_COLOR);
 }
 
 void NightEffect::drawMeteor(TFT_eSPI &tft, const Meteor &meteor, uint8_t index)
 {
   const uint8_t colorIndex = index % METEOR_COLOR_COUNT;
-  const int16_t tailX = meteor.x - meteor.tailLength;
-  const int16_t tailY =
-      meteor.y - (meteor.tailLength * meteor.vy) / meteor.vx;
-  const int16_t coreX = meteor.x - meteor.tailLength / 3;
-  const int16_t coreY =
-      meteor.y - ((meteor.tailLength / 3) * meteor.vy) / meteor.vx;
-
-  tft.drawLine(
-      tailX,
-      tailY,
-      meteor.x,
-      meteor.y,
-      METEOR_TAIL_COLORS[colorIndex]);
-  tft.drawLine(
-      coreX,
-      coreY,
-      meteor.x,
-      meteor.y,
-      METEOR_COLORS[colorIndex]);
+  tft.drawPixel(meteor.x - 1, meteor.y, METEOR_TAIL_COLORS[colorIndex]);
+  tft.drawPixel(meteor.x, meteor.y, METEOR_COLORS[colorIndex]);
   tft.drawPixel(meteor.x, meteor.y + 1, STAR_BRIGHT);
 }
 
