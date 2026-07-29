@@ -14,6 +14,8 @@ Run commands from the repository root:
 - `pio test -e esp12e` — run PlatformIO-compatible tests when adding or modifying tests; hardware-facing behavior still requires device validation.
 - `pio run -t clean` — remove generated build output before a clean rebuild.
 
+After every completed modification, automatically run `pio run -t upload -e esp12e` to build and upload the firmware to the configured device. Report upload failures explicitly; do not silently treat a successful compile as a successful device update.
+
 Never commit `.pio/` or other generated build artifacts.
 
 ## Coding Style & Naming Conventions
