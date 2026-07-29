@@ -40,6 +40,7 @@
 #include "config.h"                //配置文件
 #include "weatherNum/weatherNum.h" //天气图库
 #include "Animate/Animate.h"       //动画模块
+#include "Animate/NightEffect.h"
 #include "Network/NetworkRefreshService.h"
 #include "Scheduler/PeriodicTask.h"
 
@@ -118,7 +119,11 @@ unsigned int weatherUpdateMinutes = 1;
 TFT_eSPI tft = TFT_eSPI(); // 引脚请自行配置tft_espi库中的 User_Setup.h文件
 TFT_eSprite clk = TFT_eSprite(&tft);
 #define LCD_BL_PIN 5 // LCD背光引脚
+#if Animate_Choice == 3
+uint16_t bgColor = 0x0842;
+#else
 uint16_t bgColor = 0x0000;
+#endif
 
 //其余状态标志位
 int LCD_Rotation = 0;        // LCD屏幕方向
@@ -136,6 +141,7 @@ int wifi_addr = 30; //被写入数据的EEPROM地址编号  20wifi-ssid-psw
 /*** Component objects ***/
 WeatherNum wrat;
 AnimationPlayer animationPlayer;
+NightEffect nightEffect;
 
 String cityCode = "101090609"; //天气城市代码
 int tempnum = 0;               //温度百分比
@@ -939,6 +945,13 @@ void digitalClockDisplay(bool forceRefresh)
   //小时刷新
   if (now_hour != Hour_sign || forceRefresh)
   {
+#if Animate_Choice == 3
+    if (Hour_sign >= 0 && Hour_sign < 24)
+    {
+      drawLineFont(20, timeY, Hour_sign / 10, 3, bgColor);
+      drawLineFont(60, timeY, Hour_sign % 10, 3, bgColor);
+    }
+#endif
     drawLineFont(20, timeY, now_hour / 10, 3, SD_FONT_WHITE);
     drawLineFont(60, timeY, now_hour % 10, 3, SD_FONT_WHITE);
     Hour_sign = now_hour;
@@ -946,6 +959,13 @@ void digitalClockDisplay(bool forceRefresh)
   //分钟刷新
   if (now_minute != Minute_sign || forceRefresh)
   {
+#if Animate_Choice == 3
+    if (Minute_sign >= 0 && Minute_sign < 60)
+    {
+      drawLineFont(101, timeY, Minute_sign / 10, 3, bgColor);
+      drawLineFont(141, timeY, Minute_sign % 10, 3, bgColor);
+    }
+#endif
     drawLineFont(101, timeY, now_minute / 10, 3, SD_FONT_YELLOW);
     drawLineFont(141, timeY, now_minute % 10, 3, SD_FONT_YELLOW);
     Minute_sign = now_minute;
@@ -953,6 +973,13 @@ void digitalClockDisplay(bool forceRefresh)
   //秒针刷新
   if (now_second != Second_sign || forceRefresh)
   {
+#if Animate_Choice == 3
+    if (Second_sign >= 0 && Second_sign < 60)
+    {
+      drawLineFont(182, timeY + 30, Second_sign / 10, 2, bgColor);
+      drawLineFont(202, timeY + 30, Second_sign % 10, 2, bgColor);
+    }
+#endif
     drawLineFont(182, timeY + 30, now_second / 10, 2, SD_FONT_WHITE);
     drawLineFont(202, timeY + 30, now_second % 10, 2, SD_FONT_WHITE);
     Second_sign = now_second;
@@ -1024,7 +1051,11 @@ void refreshDisplay()
 PeriodicTask clockTask(refreshTime, 300);
 PeriodicTask bannerTask(refreshBanner, 2 * TMS);
 PeriodicTask wifiTask(wakeWifi, 60 * TMS);
+#if Animate_Choice == 3
+PeriodicTask animationTask(refresh_AnimatedImage, 40);
+#else
 PeriodicTask animationTask(refresh_AnimatedImage, 80);
+#endif
 
 void setWeatherUpdateInterval()
 {
@@ -1161,23 +1192,20 @@ void setup()
 
 void refresh_AnimatedImage()
 {
-#if Animate_Choice
+#if Animate_Choice == 3
+  if (DHT_img_flag == 0)
+  {
+    tft.startWrite();
+    nightEffect.update(tft, millis());
+    digitalClockDisplay();
+    tft.endWrite();
+  }
+#elif Animate_Choice
   if (DHT_img_flag == 0)
   {
     AnimationFrame frame;
     if (animationPlayer.nextFrame(frame))
-    {
-#if Animate_Choice == 3
-      // TJpgDec outputs one MCU block at a time. Keep the bus transaction open
-      // for the complete frame and its clock overlay to avoid per-block setup.
-      tft.startWrite();
-      TJpgDec.drawJpg(0, 0, frame.data, frame.size);
-      digitalClockDisplay(true);
-      tft.endWrite();
-#else
       TJpgDec.drawJpg(160, 160, frame.data, frame.size);
-#endif
-    }
   }
 #endif
 }

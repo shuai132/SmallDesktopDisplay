@@ -1,4 +1,4 @@
-#define Animate_Choice 3      //动图选择：1,太空人 2,胡桃 3,龙猫全屏动画
+#define Animate_Choice 3      //动图选择：1,太空人 2,胡桃 3,龙猫星夜特效
 #define TMS 1000              //一千毫秒
 #define WM_EN 1               // WEB配网使能标志位----WEB配网打开后会默认关闭smartconfig功能
 #define DHT_EN 0              //设定DHT11温湿度传感器使能标志
@@ -7,4 +7,8 @@
 #define SD_FONT_YELLOW 0xD404 // 黄色字体颜色
 #define SD_FONT_WHITE 0xFFFF  // 黄色字体颜色
 
-#define timeY 82 // 定义高度
+#if Animate_Choice == 3
+#define timeY 0 // 星夜模式将时钟固定在角色上方
+#else
+#define timeY 82
+#endif
