@@ -1171,7 +1171,19 @@ void refresh_AnimatedImage()
       // TJpgDec outputs one MCU block at a time. Keep the bus transaction open
       // for the complete frame and its clock overlay to avoid per-block setup.
       tft.startWrite();
-      TJpgDec.drawJpg(0, 0, frame.data, frame.size);
+      if (frame.patchCount == 0)
+      {
+        TJpgDec.drawJpg(0, 0, frame.data, frame.size);
+      }
+      else
+      {
+        for (uint8_t index = 0; index < frame.patchCount; index++)
+        {
+          AnimationPatch patch;
+          if (animationPlayer.getPatch(frame.firstPatch + index, patch))
+            TJpgDec.drawJpg(patch.x, patch.y, patch.data, patch.size);
+        }
+      }
       digitalClockDisplay(true);
       tft.endWrite();
 #else
