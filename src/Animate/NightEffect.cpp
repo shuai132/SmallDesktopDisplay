@@ -17,8 +17,10 @@ constexpr uint8_t SKY_BOTTOM = 208;
 constexpr uint8_t MOON_X = 31;
 constexpr uint8_t MOON_Y = 50;
 constexpr uint8_t METEOR_COLOR_COUNT = 3;
-constexpr uint8_t METEOR_LANES[] = {
-    6, 82, 96, 110, 124, 138, 152, 166, 180, 194};
+constexpr int16_t METEOR_LANES[] = {
+    -12, 70, 88, 106, 124, 142, 160, 178, 190, 200};
+constexpr uint8_t METEOR_TAIL_STEPS = 5;
+constexpr uint8_t METEOR_TAIL_SPACING = 3;
 
 bool overlapsClock(uint8_t x, uint8_t y)
 {
@@ -155,8 +157,8 @@ void NightEffect::launchMeteor(Meteor &meteor, uint8_t index, uint32_t now)
   randomState_ = randomState_ * 1664525UL + 1013904223UL;
   meteor.x = -28 - (randomState_ % 44);
   meteor.y = METEOR_LANES[index];
-  meteor.vx = 4 + (index % 3);
-  meteor.vy = index < 2 ? 1 : (index & 1);
+  meteor.vx = 5 + (index % 3);
+  meteor.vy = 2 + (index & 1);
   meteor.nextStepAt = now;
   meteor.active = true;
 }
@@ -164,12 +166,16 @@ void NightEffect::launchMeteor(Meteor &meteor, uint8_t index, uint32_t now)
 void NightEffect::eraseMeteor(TFT_eSPI &tft, const Meteor &meteor)
 {
   tft.drawPixel(meteor.x, meteor.y, NIGHT_SKY_COLOR);
+  tft.drawPixel(meteor.x - 1, meteor.y, NIGHT_SKY_COLOR);
+  tft.drawPixel(meteor.x + 1, meteor.y, NIGHT_SKY_COLOR);
+  tft.drawPixel(meteor.x, meteor.y - 1, NIGHT_SKY_COLOR);
   tft.drawPixel(meteor.x, meteor.y + 1, NIGHT_SKY_COLOR);
-  for (uint8_t step = 1; step <= 3; step++)
+  for (uint8_t step = 1; step <= METEOR_TAIL_STEPS; step++)
   {
-    const int16_t tailX = meteor.x - step * 2;
+    const int16_t tailX = meteor.x - step * METEOR_TAIL_SPACING;
     const int16_t tailY =
-        meteor.y - (step * 2 * meteor.vy) / meteor.vx;
+        meteor.y -
+        (step * METEOR_TAIL_SPACING * meteor.vy) / meteor.vx;
     tft.drawPixel(tailX, tailY, NIGHT_SKY_COLOR);
   }
 }
@@ -177,15 +183,19 @@ void NightEffect::eraseMeteor(TFT_eSPI &tft, const Meteor &meteor)
 void NightEffect::drawMeteor(TFT_eSPI &tft, const Meteor &meteor, uint8_t index)
 {
   const uint8_t colorIndex = index % METEOR_COLOR_COUNT;
-  for (uint8_t step = 3; step >= 1; step--)
+  for (uint8_t step = METEOR_TAIL_STEPS; step >= 1; step--)
   {
-    const int16_t tailX = meteor.x - step * 2;
+    const int16_t tailX = meteor.x - step * METEOR_TAIL_SPACING;
     const int16_t tailY =
-        meteor.y - (step * 2 * meteor.vy) / meteor.vx;
+        meteor.y -
+        (step * METEOR_TAIL_SPACING * meteor.vy) / meteor.vx;
     const uint16_t tailColor =
-        step == 3 ? STAR_DIM : METEOR_TAIL_COLORS[colorIndex];
+        step >= 4 ? STAR_DIM : METEOR_TAIL_COLORS[colorIndex];
     tft.drawPixel(tailX, tailY, tailColor);
   }
+  tft.drawPixel(meteor.x - 1, meteor.y, METEOR_COLORS[colorIndex]);
+  tft.drawPixel(meteor.x + 1, meteor.y, METEOR_COLORS[colorIndex]);
+  tft.drawPixel(meteor.x, meteor.y - 1, STAR_BRIGHT);
   tft.drawPixel(meteor.x, meteor.y, METEOR_COLORS[colorIndex]);
   tft.drawPixel(meteor.x, meteor.y + 1, STAR_BRIGHT);
 }
