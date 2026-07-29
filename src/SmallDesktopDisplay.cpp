@@ -1209,11 +1209,20 @@ void refresh_AnimatedImage()
 #if Animate_Choice == 3
   if (DHT_img_flag == 0)
   {
+    static time_t lastUiRefreshAt = 0;
+    const time_t currentTime = now();
+    const int currentSecond = second(currentTime);
+    const bool refreshFullUi =
+        currentSecond % 10 == 0 && currentTime != lastUiRefreshAt;
+
     tft.startWrite();
     nightEffect.update(tft, millis());
-    digitalClockDisplay();
+    digitalClockDisplay(refreshFullUi);
     refreshWifiStatus();
     tft.endWrite();
+
+    if (refreshFullUi)
+      lastUiRefreshAt = currentTime;
   }
 #elif Animate_Choice
   if (DHT_img_flag == 0)
