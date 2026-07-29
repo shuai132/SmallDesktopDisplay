@@ -18,7 +18,7 @@ constexpr uint8_t MOON_X = 31;
 constexpr uint8_t MOON_Y = 50;
 constexpr uint8_t METEOR_COLOR_COUNT = 3;
 constexpr int16_t METEOR_LANES[] = {
-    -12, 70, 88, 106, 124, 142, 160, 178, 190, 200};
+    -35, -45, -20, -55, 72, 88, 104, 120, 136, 152};
 constexpr uint8_t METEOR_TAIL_STEPS = 5;
 constexpr uint8_t METEOR_TAIL_SPACING = 3;
 
