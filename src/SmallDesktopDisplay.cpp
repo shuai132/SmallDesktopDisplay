@@ -1169,8 +1169,12 @@ void refresh_AnimatedImage()
     if (animationPlayer.nextFrame(frame))
     {
 #if Animate_Choice == 3
+      // TJpgDec outputs one MCU block at a time. Keep the bus transaction open
+      // for the complete frame and its clock overlay to avoid per-block setup.
+      tft.startWrite();
       TJpgDec.drawJpg(0, 0, frame.data, frame.size);
       digitalClockDisplay(true);
+      tft.endWrite();
 #else
       TJpgDec.drawJpg(160, 160, frame.data, frame.size);
 #endif

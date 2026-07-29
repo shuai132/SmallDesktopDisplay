@@ -29,10 +29,19 @@ public:
     if (!started_)
       start(now);
 
+    if (intervalMs_ == 0)
+    {
+      lastRunAt_ = now;
+      callback_();
+      return;
+    }
+
     if (now - lastRunAt_ < intervalMs_)
       return;
 
-    lastRunAt_ = now;
+    // Keep tasks on a fixed timeline so callback execution time is not added
+    // to every interval. Skip missed slots instead of running a backlog.
+    lastRunAt_ += ((now - lastRunAt_) / intervalMs_) * intervalMs_;
     callback_();
   }
 
