@@ -8,7 +8,7 @@
 #define SD_FONT_WHITE 0xFFFF  // 黄色字体颜色
 
 #if Animate_Choice == 3
-#define timeY 0 // 星夜模式将时钟固定在角色上方
+#define timeY 75 // 星夜模式将时钟垂直居中
 #else
 #define timeY 82
 #endif

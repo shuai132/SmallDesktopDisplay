@@ -13,7 +13,7 @@ public:
 private:
   static constexpr uint8_t STAR_COUNT = 64;
   static constexpr uint8_t STATIC_STAR_COUNT = 20;
-  static constexpr uint8_t METEOR_COUNT = 3;
+  static constexpr uint8_t METEOR_COUNT = 10;
 
   struct Star
   {

@@ -14,16 +14,19 @@ constexpr uint16_t METEOR_COLORS[] = {0xFFE0, 0x07FF, 0xFD5F};
 constexpr uint16_t METEOR_TAIL_COLORS[] = {0x8410, 0x4A69, 0x820C};
 constexpr uint8_t SKY_TOP = 5;
 constexpr uint8_t SKY_BOTTOM = 208;
+constexpr uint8_t MOON_X = 31;
+constexpr uint8_t MOON_Y = 50;
+constexpr uint8_t METEOR_COLOR_COUNT = 3;
 
 bool overlapsClock(uint8_t x, uint8_t y)
 {
-  if (y > 92)
+  if (y < 68 || y > 168)
     return false;
 
   if ((x >= 18 && x <= 97) || (x >= 99 && x <= 178))
     return true;
 
-  return y >= 28 && y <= 62 && x >= 180 && x <= 222;
+  return y >= 98 && y <= 140 && x >= 180 && x <= 222;
 }
 }
 
@@ -62,12 +65,11 @@ void NightEffect::initializeStars()
               ? SKY_TOP + (randomState_ % 85)
               : SKY_TOP + (randomState_ % (SKY_BOTTOM - SKY_TOP));
 
-      const int16_t moonDx = static_cast<int16_t>(stars_[index].x) - 32;
-      const int16_t moonDy = static_cast<int16_t>(stars_[index].y) - 128;
+      const int16_t moonDx = static_cast<int16_t>(stars_[index].x) - MOON_X;
+      const int16_t moonDy = static_cast<int16_t>(stars_[index].y) - MOON_Y;
       invalidPosition = moonDx * moonDx + moonDy * moonDy < 24 * 24;
-      if (index >= STATIC_STAR_COUNT)
-        invalidPosition = invalidPosition ||
-                          overlapsClock(stars_[index].x, stars_[index].y);
+      invalidPosition = invalidPosition ||
+                        overlapsClock(stars_[index].x, stars_[index].y);
     } while (invalidPosition);
 
     stars_[index].phase = (randomState_ >> 24) % 4;
@@ -78,9 +80,9 @@ void NightEffect::initializeMeteors(uint32_t now)
 {
   for (uint8_t index = 0; index < METEOR_COUNT; index++)
   {
-    meteors_[index].active = false;
-    meteors_[index].nextLaunchAt = now + 700 + index * 1050;
-    meteors_[index].nextStepAt = now;
+    launchMeteor(meteors_[index], index, now);
+    meteors_[index].x = -18 + index * 27;
+    meteors_[index].nextStepAt = now + (index % 3) * 13;
   }
 }
 
@@ -89,8 +91,8 @@ void NightEffect::drawStaticSky(TFT_eSPI &tft)
   for (uint8_t index = 0; index < STAR_COUNT; index++)
     drawStar(tft, stars_[index]);
 
-  tft.fillCircle(31, 128, 17, MOON_COLOR);
-  tft.fillCircle(38, 122, 17, NIGHT_SKY_COLOR);
+  tft.fillCircle(MOON_X, MOON_Y, 17, MOON_COLOR);
+  tft.fillCircle(MOON_X + 7, MOON_Y - 6, 17, NIGHT_SKY_COLOR);
 
   // A quiet horizon gives the lower half depth without requiring animation.
   tft.fillTriangle(0, 239, 62, 211, 124, 239, 0x1082);
@@ -138,7 +140,7 @@ void NightEffect::updateMeteors(TFT_eSPI &tft, uint32_t now)
     if (meteor.x - meteor.tailLength > 244 || meteor.y > 211)
     {
       meteor.active = false;
-      meteor.nextLaunchAt = now + 2100 + index * 650 + (randomState_ % 1200);
+      meteor.nextLaunchAt = now + 500 + index * 95 + (randomState_ % 700);
       continue;
     }
 
@@ -149,11 +151,11 @@ void NightEffect::updateMeteors(TFT_eSPI &tft, uint32_t now)
 void NightEffect::launchMeteor(Meteor &meteor, uint8_t index, uint32_t now)
 {
   randomState_ = randomState_ * 1664525UL + 1013904223UL;
-  meteor.x = -24 - index * 11;
-  meteor.y = 150 + (randomState_ % 28);
-  meteor.vx = 6 + index;
-  meteor.vy = 2 + (index & 1);
-  meteor.tailLength = 18 + index * 5;
+  meteor.x = -28 - (randomState_ % 44);
+  meteor.y = 10 + (index % 5) * 38 + ((index / 5) * 13);
+  meteor.vx = 4 + (index % 3);
+  meteor.vy = 1 + (index & 1);
+  meteor.tailLength = 14 + (index % 4) * 5;
   meteor.nextStepAt = now;
   meteor.active = true;
 }
@@ -169,6 +171,7 @@ void NightEffect::eraseMeteor(TFT_eSPI &tft, const Meteor &meteor)
 
 void NightEffect::drawMeteor(TFT_eSPI &tft, const Meteor &meteor, uint8_t index)
 {
+  const uint8_t colorIndex = index % METEOR_COLOR_COUNT;
   const int16_t tailX = meteor.x - meteor.tailLength;
   const int16_t tailY =
       meteor.y - (meteor.tailLength * meteor.vy) / meteor.vx;
@@ -181,13 +184,13 @@ void NightEffect::drawMeteor(TFT_eSPI &tft, const Meteor &meteor, uint8_t index)
       tailY,
       meteor.x,
       meteor.y,
-      METEOR_TAIL_COLORS[index]);
+      METEOR_TAIL_COLORS[colorIndex]);
   tft.drawLine(
       coreX,
       coreY,
       meteor.x,
       meteor.y,
-      METEOR_COLORS[index]);
+      METEOR_COLORS[colorIndex]);
   tft.drawPixel(meteor.x, meteor.y + 1, STAR_BRIGHT);
 }
 

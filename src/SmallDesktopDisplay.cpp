@@ -129,6 +129,7 @@ uint16_t bgColor = 0x0000;
 int LCD_Rotation = 0;        // LCD屏幕方向
 int LCD_BL_PWM = 50;         //屏幕亮度0-100，默认50
 bool wifiRefreshRequested = true;
+String wifiStatus;
 int DHT_img_flag = 0; // DHT传感器使用标志位
 
 // EEPROM参数存储地址位
@@ -201,14 +202,27 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
 //在主界面的信息栏显示 WiFi 状态
 void showWifiStatus(const String &status)
 {
-  clk.setColorDepth(8);
-  clk.createSprite(150, 30);
-  clk.fillSprite(bgColor);
-  clk.setTextDatum(CC_DATUM);
-  clk.setTextColor(TFT_GREEN, bgColor);
-  clk.drawString(status, 74, 16, 2);
-  clk.pushSprite(10, 45);
-  clk.deleteSprite();
+  if (wifiStatus.length() > 0)
+  {
+    tft.setTextDatum(BL_DATUM);
+    tft.setTextColor(bgColor);
+    tft.drawString(wifiStatus, 4, 208, 2);
+  }
+
+  wifiStatus = status;
+  tft.setTextDatum(BL_DATUM);
+  tft.setTextColor(TFT_GREEN);
+  tft.drawString(wifiStatus, 4, 208, 2);
+}
+
+void refreshWifiStatus()
+{
+  if (wifiStatus.length() == 0)
+    return;
+
+  tft.setTextDatum(BL_DATUM);
+  tft.setTextColor(TFT_GREEN);
+  tft.drawString(wifiStatus, 4, 208, 2);
 }
 
 // Keep the live parts of the main screen moving during blocking WiFi setup.
@@ -1198,6 +1212,7 @@ void refresh_AnimatedImage()
     tft.startWrite();
     nightEffect.update(tft, millis());
     digitalClockDisplay();
+    refreshWifiStatus();
     tft.endWrite();
   }
 #elif Animate_Choice
