@@ -1089,6 +1089,10 @@ void serviceScheduledTasks()
 
 void setup()
 {
+  // Keep the panel dark until its controller and first frame are ready.
+  pinMode(LCD_BL_PIN, OUTPUT);
+  digitalWrite(LCD_BL_PIN, HIGH);
+
   Button_sw1.setClickHandler(esp_reset);
   Button_sw1.setLongClickHandler(wifi_reset);
   Serial.begin(115200);
@@ -1107,9 +1111,6 @@ void setup()
   if (EEPROM.read(Ro_addr) >= 0 && EEPROM.read(Ro_addr) <= 3)
     LCD_Rotation = EEPROM.read(Ro_addr);
 
-  pinMode(LCD_BL_PIN, OUTPUT);
-  analogWrite(LCD_BL_PIN, 1023 - (LCD_BL_PWM * 10));
-
   tft.begin();          /* TFT init */
   tft.invertDisplay(1); //反转所有显示颜色：1反转，0正常
   tft.setRotation(LCD_Rotation);
@@ -1122,6 +1123,14 @@ void setup()
 
   drawMainScreen();
   showWifiStatus("WiFi Connecting...");
+
+  const int backlightDuty = 1023 - (LCD_BL_PWM * 10);
+  for (int duty = 1023; duty > backlightDuty; duty -= 32)
+  {
+    analogWrite(LCD_BL_PIN, duty);
+    delay(4);
+  }
+  analogWrite(LCD_BL_PIN, backlightDuty);
 
   readwificonfig(); //读取存储的wifi信息
   Serial.print("正在连接WIFI ");
