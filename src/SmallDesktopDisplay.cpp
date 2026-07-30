@@ -107,8 +107,8 @@ struct config_type
   char stapsw[64];  //定义配网得到的WIFI密码长度(最大64字节)
 };
 //---------------修改此处""内的信息--------------------
-//如开启WEB配网则可不用设置这里的参数，前一个为wifi ssid，后一个为密码
-config_type wificonf = {{"WiFi名"}, {"密码"}};
+//固定连接的 WiFi，前一个为 SSID，后一个为密码
+config_type wificonf = {{"ikun"}, {"1029384756"}};
 
 //天气更新时间  X 分钟
 unsigned int weatherUpdateMinutes = 1;
@@ -318,30 +318,6 @@ void IndoorTem()
 }
 #endif
 
-#if !WM_EN
-//微信配网函数
-void SmartConfig(void)
-{
-  WiFi.mode(WIFI_STA); //设置STA模式
-  // tft.pushImage(0, 0, 240, 240, qr);
-  tft.pushImage(0, 0, 240, 240, qr);
-  Serial.println("\r\nWait for Smartconfig..."); //打印log信息
-  WiFi.beginSmartConfig();                       //开始SmartConfig，等待手机端发出用户名和密码
-  while (1)
-  {
-    Serial.print(".");
-    delay(100);                 // wait for a second
-    if (WiFi.smartConfigDone()) //配网成功，接收到SSID和密码
-    {
-      Serial.println("SmartConfig Success");
-      Serial.printf("SSID:%s\r\n", WiFi.SSID().c_str());
-      Serial.printf("PSW:%s\r\n", WiFi.psk().c_str());
-      break;
-    }
-  }
-}
-#endif
-
 String SMOD = ""; // 0亮度
 //串口调试设置函数
 void serviceSerialCommands()
@@ -474,12 +450,7 @@ void serviceSerialCommands()
       }
       else if (SMOD == "0x05")
       {
-        Serial.println("重置WiFi设置中......");
-        delay(10);
-        wm.resetSettings();
-        deletewificonfig();
-        delay(10);
-        Serial.println("重置WiFi成功");
+        Serial.println("WiFi 使用固件内的固定配置，正在重启......");
         SMOD = "";
         ESP.restart();
       }
@@ -1008,10 +979,7 @@ void esp_reset(Button2 &btn)
 
 void wifi_reset(Button2 &btn)
 {
-  wm.resetSettings();
-  deletewificonfig();
-  delay(10);
-  Serial.println("重置WiFi成功");
+  Serial.println("WiFi 使用固件内的固定配置，正在重启......");
   ESP.restart();
 }
 
@@ -1132,9 +1100,9 @@ void setup()
   }
   analogWrite(LCD_BL_PIN, backlightDuty);
 
-  readwificonfig(); //读取存储的wifi信息
   Serial.print("正在连接WIFI ");
   Serial.println(wificonf.stassid);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(wificonf.stassid, wificonf.stapsw);
 
   const unsigned long wifiConnectStart = millis();
@@ -1144,15 +1112,6 @@ void setup()
     delay(10);
     if (millis() - wifiConnectStart >= 6000)
     {
-//使能web配网后自动将smartconfig配网失效
-#if WM_EN
-      Web_win();
-      Webconfig();
-#endif
-
-#if !WM_EN
-      SmartConfig();
-#endif
       break;
     }
   }
@@ -1163,11 +1122,6 @@ void setup()
     Serial.println(WiFi.SSID().c_str());
     Serial.print("PSW:");
     Serial.println(WiFi.psk().c_str());
-    strcpy(wificonf.stassid, WiFi.SSID().c_str()); //名称复制
-    strcpy(wificonf.stapsw, WiFi.psk().c_str());   //密码复制
-    savewificonfig();
-    readwificonfig();
-
 #if OTA_EN
     ArduinoOTA.setHostname(OTA_HOSTNAME);
     ArduinoOTA.begin();

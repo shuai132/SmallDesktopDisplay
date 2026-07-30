@@ -1,6 +1,6 @@
 #define Animate_Choice 3      //动图选择：1,太空人 2,胡桃 3,龙猫星夜特效
 #define TMS 1000              //一千毫秒
-#define WM_EN 1               // WEB配网使能标志位----WEB配网打开后会默认关闭smartconfig功能
+#define WM_EN 0               //关闭 WEB/AP 配网，固件直接连接预设 WiFi
 #define DHT_EN 0              //设定DHT11温湿度传感器使能标志
 #define OTA_EN 1              //启用 WiFi OTA 上传；首次仍需通过串口刷入
 #define OTA_HOSTNAME "SmallDesktopDisplay"
