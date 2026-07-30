@@ -130,6 +130,10 @@ int LCD_Rotation = 0;        // LCD屏幕方向
 int LCD_BL_PWM = 50;         //屏幕亮度0-100，默认50
 bool wifiRefreshRequested = true;
 String wifiStatus;
+bool wifiConnected = false;
+#if OTA_EN
+bool otaReady = false;
+#endif
 int DHT_img_flag = 0; // DHT传感器使用标志位
 
 // EEPROM参数存储地址位
@@ -1001,9 +1005,28 @@ void refreshBanner()
 
 void serviceNetwork()
 {
+  const bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected != wifiConnected)
+  {
+    wifiConnected = connected;
+    showWifiStatus(connected ? "WiFi Connected" : "WiFi Disconnected");
+  }
+
+#if OTA_EN
+  if (connected && !otaReady)
+  {
+    ArduinoOTA.setHostname(OTA_HOSTNAME);
+    ArduinoOTA.begin();
+    otaReady = true;
+    Serial.print("OTA ready: ");
+    Serial.print(OTA_HOSTNAME);
+    Serial.println(".local");
+  }
+#endif
+
   if (wifiRefreshRequested && !networkRefresh.isActive())
   {
-    if (WiFi.status() == WL_CONNECTED)
+    if (connected)
     {
       Serial.println("WIFI connected");
       networkRefresh.start(cityCode);
@@ -1103,6 +1126,7 @@ void setup()
   Serial.print("正在连接WIFI ");
   Serial.println(wificonf.stassid);
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(wificonf.stassid, wificonf.stapsw);
 
   const unsigned long wifiConnectStart = millis();
@@ -1118,6 +1142,7 @@ void setup()
 
   if (WiFi.status() == WL_CONNECTED)
   {
+    wifiConnected = true;
     Serial.print("SSID:");
     Serial.println(WiFi.SSID().c_str());
     Serial.print("PSW:");
@@ -1125,11 +1150,16 @@ void setup()
 #if OTA_EN
     ArduinoOTA.setHostname(OTA_HOSTNAME);
     ArduinoOTA.begin();
+    otaReady = true;
     Serial.print("OTA ready: ");
     Serial.print(OTA_HOSTNAME);
     Serial.println(".local");
 #endif
     showWifiStatus("WiFi Connected");
+  }
+  else
+  {
+    showWifiStatus("WiFi Disconnected");
   }
 
   Serial.print("本地IP： ");
