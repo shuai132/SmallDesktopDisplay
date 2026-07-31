@@ -28,7 +28,6 @@
 #include <ArduinoJson.h>
 #include <TimeLib.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
 #include <ArduinoOTA.h>
 #include <WiFiUdp.h>
 #include <TFT_eSPI.h>
@@ -43,8 +42,10 @@
 #include "Animate/NightEffect.h"
 #include "Network/NetworkRefreshService.h"
 #include "Scheduler/PeriodicTask.h"
+#include "ImageViewer/ImageViewer.h"
+#include "WebController/WebController.h"
 
-#define Version "SDD V1.4.3"
+#define Version "SDD V1.5.0"
 /* *****************************************************************
  *  配置使能位
  * *****************************************************************/
@@ -86,6 +87,9 @@ void parseWeatherResponse(const String &response);
 void wifi_reset(Button2 &btn); // WIFI重设
 void saveParamCallback();
 void esp_reset(Button2 &btn);
+void image_mode_toggle(Button2 &btn);
+void image_slot_next(Button2 &btn);
+void showDashboardMode();
 void scrollBanner();
 void renderWeatherData(String *cityDZ, String *dataSK, String *dataFC);
 void refresh_AnimatedImage();                                    //更新右下角
@@ -206,6 +210,11 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap)
 //在主界面的信息栏显示 WiFi 状态
 void showWifiStatus(const String &status)
 {
+  if (imageViewerIsImageMode())
+  {
+    wifiStatus = status;
+    return;
+  }
   if (wifiStatus.length() > 0)
   {
     tft.setTextDatum(BL_DATUM);
@@ -221,7 +230,7 @@ void showWifiStatus(const String &status)
 
 void refreshWifiStatus()
 {
-  if (wifiStatus.length() == 0)
+  if (wifiStatus.length() == 0 || imageViewerIsImageMode())
     return;
 
   tft.setTextDatum(BL_DATUM);
@@ -232,6 +241,11 @@ void refreshWifiStatus()
 // Keep the live parts of the main screen moving during blocking WiFi setup.
 void refreshConnectingScreen()
 {
+  if (imageViewerIsImageMode())
+  {
+    yield();
+    return;
+  }
   static uint32_t lastClockRefresh = 0;
   const uint32_t currentTime = millis();
   if (currentTime - lastClockRefresh >= 300)
@@ -981,6 +995,16 @@ void esp_reset(Button2 &btn)
   ESP.reset();
 }
 
+void image_mode_toggle(Button2 &btn)
+{
+  imageViewerToggleMode();
+}
+
+void image_slot_next(Button2 &btn)
+{
+  imageViewerNextSlot();
+}
+
 void wifi_reset(Button2 &btn)
 {
   Serial.println("WiFi 使用固件内的固定配置，正在重启......");
@@ -1009,6 +1033,8 @@ void serviceNetwork()
   if (connected != wifiConnected)
   {
     wifiConnected = connected;
+    if (connected)
+      imageViewerSetNetworkAddress(WiFi.localIP().toString());
     showWifiStatus(connected ? "WiFi Connected" : "WiFi Disconnected");
   }
 
@@ -1034,7 +1060,7 @@ void serviceNetwork()
     }
   }
 
-  if (networkRefresh.service(cityCode, parseWeatherResponse))
+  if (networkRefresh.service(cityCode, parseWeatherResponse) && !imageViewerIsImageMode())
     digitalClockDisplay(true);
 }
 
@@ -1070,6 +1096,11 @@ void setWeatherUpdateInterval()
 void serviceScheduledTasks()
 {
   const uint32_t now = millis();
+  if (imageViewerIsImageMode())
+  {
+    wifiTask.run(now);
+    return;
+  }
 #if Animate_Choice != 3
   clockTask.run(now);
   bannerTask.run(now);
@@ -1078,13 +1109,23 @@ void serviceScheduledTasks()
   animationTask.run(now);
 }
 
+void showDashboardMode()
+{
+  drawMainScreen();
+  digitalClockDisplay(true);
+  refreshBanner();
+  refreshWifiStatus();
+}
+
 void setup()
 {
   // Keep the panel dark until its controller and first frame are ready.
   pinMode(LCD_BL_PIN, OUTPUT);
   digitalWrite(LCD_BL_PIN, HIGH);
 
-  Button_sw1.setClickHandler(esp_reset);
+  Button_sw1.setClickHandler(image_mode_toggle);
+  Button_sw1.setDoubleClickHandler(image_slot_next);
+  Button_sw1.setTripleClickHandler(esp_reset);
   Button_sw1.setLongClickHandler(wifi_reset);
   Serial.begin(115200);
   EEPROM.begin(1024);
@@ -1112,7 +1153,9 @@ void setup()
   TJpgDec.setSwapBytes(true);
   TJpgDec.setCallback(tft_output);
 
-  drawMainScreen();
+  imageViewerInit(tft, showDashboardMode);
+  if (!imageViewerIsImageMode())
+    drawMainScreen();
   showWifiStatus("WiFi Connecting...");
 
   const int backlightDuty = 1023 - (LCD_BL_PWM * 10);
@@ -1164,6 +1207,8 @@ void setup()
 
   Serial.print("本地IP： ");
   Serial.println(WiFi.localIP());
+  imageViewerSetNetworkAddress(WiFi.localIP().toString());
+  webControllerBegin(Version);
   Serial.println("启动UDP");
   Udp.begin(localPort);
 
@@ -1199,6 +1244,8 @@ void setup()
 
 void refresh_AnimatedImage()
 {
+  if (imageViewerIsImageMode())
+    return;
 #if Animate_Choice == 3
   if (DHT_img_flag == 0)
   {
@@ -1234,6 +1281,7 @@ void loop()
 #endif
   serviceScheduledTasks();
   serviceNetwork();
+  webControllerService();
   serviceSerialCommands();
   Button_sw1.loop();
 }

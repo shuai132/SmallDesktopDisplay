@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="theme-color" content="#0c1015">
+    <title>Small Desktop Display</title>
+    <link rel="stylesheet" href="/app.css">
+    <script src="/protocol.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div><p class="eyebrow">SMALL DESKTOP DISPLAY</p><h1>图片控制器</h1></div>
+        <span id="device-status" class="pill">连接中</span>
+      </header>
+
+      <section class="preview-card">
+        <canvas id="preview" width="240" height="240"></canvas>
+        <button id="empty-preview" type="button"><b>＋</b><span>点击选择图片</span></button>
+        <div class="preview-meta"><span>240 × 240 RGB565</span><span id="preview-mode">完整显示</span></div>
+      </section>
+
+      <label class="file-picker">
+        <input id="image-file" type="file" accept="image/*">
+        <strong>从相册选择</strong><small>JPEG、PNG、HEIC（取决于浏览器）</small>
+      </label>
+
+      <section class="card">
+        <div class="heading"><div><p class="kicker">画面</p><h2>构图调整</h2></div></div>
+        <fieldset><legend>适配方式</legend><div class="segments three">
+          <label><input type="radio" name="fit" value="contain" checked><span>完整</span></label>
+          <label><input type="radio" name="fit" value="cover"><span>铺满</span></label>
+          <label><input type="radio" name="fit" value="stretch"><span>拉伸</span></label>
+        </div></fieldset>
+        <fieldset><legend>旋转</legend><div class="segments four">
+          <label><input type="radio" name="rotate" value="0" checked><span>0°</span></label>
+          <label><input type="radio" name="rotate" value="90"><span>90°</span></label>
+          <label><input type="radio" name="rotate" value="180"><span>180°</span></label>
+          <label><input type="radio" name="rotate" value="270"><span>270°</span></label>
+        </div></fieldset>
+        <div class="range-row"><span>缩放</span><output id="scale-value">100%</output>
+          <input id="scale" type="range" min="25" max="500" value="100" step="1">
+          <button id="reset-button" class="link" type="button">重置构图</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="heading"><div><p class="kicker">设备</p><h2>上传与槽位</h2></div><span id="slot-summary">读取中</span></div>
+        <fieldset><legend>保存位置</legend><div class="segments four">
+          <label><input type="radio" name="slot" value="255" checked><span>当前</span></label>
+          <label><input type="radio" name="slot" value="0"><span>A</span></label>
+          <label><input type="radio" name="slot" value="1"><span>B</span></label>
+          <label><input type="radio" name="slot" value="2"><span>C</span></label>
+        </div></fieldset>
+        <div class="switch-row"><div><strong>实时模式</strong><small>调整后渐进显示，不写 Flash</small></div><label class="switch"><input id="realtime" type="checkbox"><span></span></label></div>
+        <div class="switch-row"><div><strong>仅显示</strong><small>不保存，重启后恢复持久画面</small></div><label class="switch"><input id="display-only" type="checkbox"><span></span></label></div>
+        <div class="switch-row"><div><strong>渐进刷新</strong><small>关闭后先校验临时文件再刷新</small></div><label class="switch"><input id="progressive" type="checkbox" checked><span></span></label></div>
+        <div class="device-actions">
+          <button id="toggle-mode" class="secondary" type="button">切换时钟 / 图片</button>
+          <button id="next-slot" class="secondary" type="button">下一有效槽</button>
+        </div>
+      </section>
+
+      <button id="upload-button" class="upload" type="button" disabled><strong id="upload-label">请先选择图片</strong><small id="upload-detail">设备将接收 115,200 字节</small></button>
+      <p id="message" role="status"></p>
+      <footer><span id="firmware">固件状态读取中</span><button id="refresh-state" class="link" type="button">刷新</button></footer>
+    </main>
+  </body>
+</html>
