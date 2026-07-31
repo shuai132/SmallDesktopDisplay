@@ -116,7 +116,10 @@ void pushRow(uint16_t row, const uint8_t *bytes)
     return;
   for (uint16_t column = 0; column < IMAGE_VIEWER_WIDTH; ++column)
     g_row_pixels[column] = static_cast<uint16_t>(bytes[column * 2]) << 8 | bytes[column * 2 + 1];
+  const bool previousSwapBytes = g_display->getSwapBytes();
+  g_display->setSwapBytes(true);
   g_display->pushImage(0, row, IMAGE_VIEWER_WIDTH, 1, g_row_pixels);
+  g_display->setSwapBytes(previousSwapBytes);
 }
 
 bool validateSlot(uint8_t slot)
